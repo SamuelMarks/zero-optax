@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zero_optax"
+version = "0.2.4"
+description = "A clean implementation of optax API"
+dependencies = [
+    "numpy",
+    "zero_jax @ file://localhost/Users/samuel/repos/zero-jax",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "mypy",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
