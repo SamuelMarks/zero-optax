@@ -166,3 +166,4 @@ cython_debug/
 *.swo
 *~
 .DS_Store
+coverage.json
