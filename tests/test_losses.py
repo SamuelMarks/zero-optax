@@ -130,9 +130,6 @@ def test_classification_gradients():
     assert_allclose_optax(numeric_grad(p_fn, pred), np.array([-1.0, 1.0]))
 
     # Sigmoid BCE grad
-    def s_fn(x):
-        return jnp.sum(sigmoid_binary_cross_entropy(x, targ))
-
     # BCE = -labels * log(sigmoid(logits)) - (1-labels)*log(1-sigmoid(logits))
     # targ=[1, -1]. Wait, labels for BCE should be 0 or 1!
     targ_bce = jnp.array([1.0, 0.0])

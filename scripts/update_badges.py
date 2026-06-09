@@ -57,7 +57,7 @@ def update_readme():
 
     # Generic replacements that handle both the cdd-go markdown format with the `#` anchor and the older ml-switcheroo format
     test_re = re.compile(
-        r"\[?\!\[Test Coverage\]\(https://img\.shields\.io/badge/(?:[tT]est_)?(?:[cC]overage)-[0-9.]+%25-[a-z]+\\.svg\)\]?(?:\(#\))?"
+        r"\[?\!\[Test Coverage\]\(https://img\.shields\.io/badge/(?:[tT]est_)?(?:[cC]overage)-[0-9.]+%25-[a-z]+\.svg\)\]?(?:\(#\))?"
     )
     content = test_re.sub(
         f"[![Test Coverage](https://img.shields.io/badge/test_coverage-{test_str}%25-{test_color}.svg)](#)",
@@ -65,7 +65,7 @@ def update_readme():
     )
 
     doc_re = re.compile(
-        r"\[?\!\[Doc Coverage\]\(https://img\.shields\.io/badge/(?:[dD]oc_)?(?:[cC]overage)-[0-9.]+%25-[a-z]+\\.svg\)\]?(?:\(#\))?"
+        r"\[?\!\[Doc Coverage\]\(https://img\.shields\.io/badge/(?:[dD]oc_)?(?:[cC]overage)-[0-9.]+%25-[a-z]+\.svg\)\]?(?:\(#\))?"
     )
     content = doc_re.sub(
         f"[![Doc Coverage](https://img.shields.io/badge/doc_coverage-{doc_str}%25-{doc_color}.svg)](#)",

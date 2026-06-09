@@ -2,24 +2,24 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/SamuelMarks/zero-optax/actions/workflows/ci.yml/badge.svg)](https://github.com/SamuelMarks/zero-optax/actions)
-[![Test Coverage](https://img.shields.io/badge/test_coverage-100%25-brightgreen.svg)](#)
+[![Test Coverage](https://img.shields.io/badge/test_coverage-96.2%25-green.svg)](#)
 [![Doc Coverage](https://img.shields.io/badge/doc_coverage-100%25-brightgreen.svg)](#)
 
-A clean implementation of the [optax](https://github.com/deepmind/optax) API with **strictly zero external dependencies** (relying solely on the Python Standard Library and `numpy` for eager evaluations). 
+A clean implementation of the [optax](https://github.com/google-deepmind/optax) API with **strictly zero external dependencies** (relying solely on the [Python Standard Library](https://docs.python.org/3/library/) and [`numpy`](https://numpy.org/) for eager evaluations). 
 
 Targeting API snapshot version: **0.2.4**.
 
 ## Why this project exists
 
-`zero-optax` is part of the broader **Abstract ML Machine Ecosystem** (the `zero-*` and `ml-switcheroo-*` projects), which is designed to solve the $N \times M$ translation problem in Machine Learning. Instead of writing bespoke translators for every framework (JAX, PyTorch, Keras) to every target (WASM, WebGPU, TensorRT), the ecosystem traces $N$ frontends into a strictly defined Intermediate Representation (IR), which is then consumed by $M$ backends. This achieves a source-to-source and source-to-browser compilation pipeline utilizing strictly zero heavy dependencies.
+`zero-optax` is part of the broader **Abstract ML Machine Ecosystem** (the `zero-*` and `ml-switcheroo-*` projects), which is designed to solve the $N \times M$ translation problem in [Machine Learning](https://en.wikipedia.org/wiki/Machine_learning). Instead of writing bespoke translators for every framework ([JAX](https://github.com/google/jax), [PyTorch](https://pytorch.org/), [Keras](https://keras.io/)) to every target ([WASM](https://webassembly.org/), [WebGPU](https://www.w3.org/TR/webgpu/), [TensorRT](https://developer.nvidia.com/tensorrt)), the ecosystem traces $N$ frontends into a strictly defined [Intermediate Representation (IR)](https://en.wikipedia.org/wiki/Intermediate_representation), which is then consumed by $M$ backends. This achieves a source-to-source and source-to-browser compilation pipeline utilizing strictly zero heavy dependencies.
 
-As part of this hierarchy (Tier 4: Neural Networks & Frontends), `zero-optax` provides standard optimization schedules, gradient transformations, and loss functions matching Google DeepMind's `optax` API. It builds on `zero-jax` and `zero-chex` to maintain full typing and shape assertion compatibility.
+As part of this hierarchy (Tier 4: Neural Networks & Frontends), `zero-optax` provides standard optimization schedules, gradient transformations, and loss functions matching [Google DeepMind](https://deepmind.google/)'s `optax` API. It builds on `zero-jax` and `zero-chex` to maintain full typing and shape assertion compatibility.
 
 ### Key Objectives
 
 - **API Parity:** To serve as a drop-in semantic replacement for the real `optax`. It exactly replicates the public signatures, defaults, and type behavior, verified automatically via the `ml-framework-snapshots` checker tool against the original framework.
-- **Pure Python & Eager Evaluation:** Operations are implemented on top of Python primitives and `numpy`, making the code incredibly lightweight and transparent without relying on `jaxlib` or XLA C++ binaries. 
-- **Tracing & Compilation:** Fully integrates with the `ml-switcheroo-compiler`'s ProxyTensors, enabling smooth reverse-mode automatic differentiation (via TracerTape) and generating WASM/WGSL executable browser payloads through the canonical ONNX-based Logical Graph Dialect.
+- **Pure Python & Eager Evaluation:** Operations are implemented on top of Python primitives and [`numpy`](https://numpy.org/), making the code incredibly lightweight and transparent without relying on `jaxlib` or [XLA](https://openxla.org/) C++ binaries. 
+- **Tracing & Compilation:** Fully integrates with the `ml-switcheroo-compiler`'s ProxyTensors, enabling smooth reverse-mode automatic differentiation (via TracerTape) and generating [WASM](https://webassembly.org/)/WGSL executable browser payloads through the canonical [ONNX](https://onnx.ai/)-based Logical Graph Dialect.
 - **Golden Seed Testing:** As part of `zero-zoo`, models utilizing `zero-optax` optimizers are trained deterministically to assert float-for-float `.allclose()` equivalence against the actual `optax` implementations.
 
 ---
