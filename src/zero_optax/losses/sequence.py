@@ -1,9 +1,33 @@
+"""Sequence losses."""
+
+from typing import Any, Tuple
+
+import chex
 import numpy as np
 
 
 def ctc_loss(
-    logits, logit_paddings, labels, label_paddings, blank_id=0, log_epsilon=-1e5
-):
+    logits: chex.Array,
+    logit_paddings: chex.Array,
+    labels: chex.Array,
+    label_paddings: chex.Array,
+    blank_id: int = 0,
+    log_epsilon: float = -1e5,
+) -> chex.Array:
+    """Compute the CTC loss.
+
+    Args:
+        logits: The logits.
+        logit_paddings: The logit paddings.
+        labels: The labels.
+        label_paddings: The label paddings.
+        blank_id: The blank ID.
+        log_epsilon: The log epsilon.
+
+    Returns:
+        The CTC loss.
+
+    """
     from ml_switcheroo.core.config import config
 
     if config.eager_mode:
@@ -12,8 +36,27 @@ def ctc_loss(
 
 
 def ctc_loss_with_forward_probs(
-    logits, logit_paddings, labels, label_paddings, blank_id=0, log_epsilon=-1e5
-):
+    logits: chex.Array,
+    logit_paddings: chex.Array,
+    labels: chex.Array,
+    label_paddings: chex.Array,
+    blank_id: int = 0,
+    log_epsilon: float = -1e5,
+) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array]:
+    """Compute the CTC loss with forward probabilities.
+
+    Args:
+        logits: The logits.
+        logit_paddings: The logit paddings.
+        labels: The labels.
+        label_paddings: The label paddings.
+        blank_id: The blank ID.
+        log_epsilon: The log epsilon.
+
+    Returns:
+        A tuple of CTC loss, alpha, beta, and gamma.
+
+    """
     from ml_switcheroo.core.config import config
 
     if config.eager_mode:

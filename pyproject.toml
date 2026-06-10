@@ -23,10 +23,17 @@ allow-direct-references = true
 
 [tool.pytest.ini_options]
 pythonpath = "src"
-addopts = "--cov=src --cov-fail-under=80"
+addopts = "--cov=zero_optax --cov-fail-under=80"
 
 dependencies = ["ml-switcheroo-compiler"]
 
 [tool.ruff.lint]
 ignore = ['E402', 'F401', 'F841', 'E741']
 
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/zero_optax"]
+omit = ["tests/*"]

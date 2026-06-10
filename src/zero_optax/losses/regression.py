@@ -1,7 +1,24 @@
+"""Regression losses."""
+
+from typing import Any, Optional
+
+import chex
 import numpy as np
 
 
-def squared_error(predictions, targets=None):
+def squared_error(
+    predictions: chex.Array, targets: Optional[chex.Array] = None
+) -> chex.Array:
+    """Compute the squared error.
+
+    Args:
+        predictions: The predictions.
+        targets: The target labels. Defaults to None (zeros).
+
+    Returns:
+        The squared error.
+
+    """
     from ml_switcheroo.core.config import config
 
     if config.eager_mode:
@@ -14,7 +31,19 @@ def squared_error(predictions, targets=None):
     return predictions
 
 
-def l2_loss(predictions, targets=None):
+def l2_loss(
+    predictions: chex.Array, targets: Optional[chex.Array] = None
+) -> chex.Array:
+    """Compute the L2 loss.
+
+    Args:
+        predictions: The predictions.
+        targets: The target labels. Defaults to None (zeros).
+
+    Returns:
+        The L2 loss.
+
+    """
     from ml_switcheroo.core.config import config
 
     if config.eager_mode:
@@ -27,7 +56,20 @@ def l2_loss(predictions, targets=None):
     return predictions
 
 
-def huber_loss(predictions, targets=None, delta=1.0):
+def huber_loss(
+    predictions: chex.Array, targets: Optional[chex.Array] = None, delta: float = 1.0
+) -> chex.Array:
+    """Compute the Huber loss.
+
+    Args:
+        predictions: The predictions.
+        targets: The target labels. Defaults to None (zeros).
+        delta: The threshold at which to change from a squared error to an absolute error.
+
+    Returns:
+        The Huber loss.
+
+    """
     from ml_switcheroo.core.config import config
 
     if config.eager_mode:

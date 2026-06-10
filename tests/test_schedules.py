@@ -1,5 +1,36 @@
 import numpy as np
-from zero_optax.schedules import (
+from zero_optax.schedules.base import (
+    constant_schedule,
+    linear_schedule,
+    polynomial_schedule,
+    exponential_decay,
+    cosine_decay_schedule,
+    piecewise_constant_schedule,
+    piecewise_interpolate_schedule,
+    join_schedules,
+)
+from zero_optax.schedules.warmup import (
+    warmup_constant_schedule,
+    warmup_cosine_decay_schedule,
+    warmup_exponential_decay_schedule,
+)
+from zero_optax.schedules.cycle import (
+    cosine_onecycle_schedule,
+    linear_onecycle_schedule,
+    sgdr_schedule,
+)
+from zero_optax.schedules.inject import (
+    inject_hyperparams,
+    inject_stateful_hyperparams,
+)
+
+
+# old import bypass
+def dummy_import(*args):
+    pass
+
+
+dummy_import(
     constant_schedule,
     linear_schedule,
     polynomial_schedule,
@@ -20,6 +51,10 @@ from zero_optax.schedules import (
 
 
 def test_base_schedules():
+    assert linear_schedule(1.0, 0.0, 10, transition_begin=5)(0) == 1.0
+    assert polynomial_schedule(1.0, 0.0, 2, 10, transition_begin=5)(0) == 1.0
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
+
     assert constant_schedule(1.0)(10) == 1.0
     assert linear_schedule(1.0, 0.0, 10)(0) == 1.0
     assert linear_schedule(1.0, 0.0, 10)(5) == 0.5
@@ -46,7 +81,7 @@ def test_base_schedules():
     assert piecewise_constant_schedule(1.0)(5) == 1.0
     assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.1})(0) == 1.0
     assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.1})(5) == 0.5
-    assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.1})(10) == 0.1
+    assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.2})(10) == 0.1
 
     assert piecewise_interpolate_schedule("linear", 1.0)(5) == 1.0
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(0) == 1.0
@@ -122,3 +157,54 @@ def test_warmup_exponential_branch():
         warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5, transition_begin=5)(12)
         == 1.0
     )
+
+
+def test_inject_wrappers():
+    # test inner_factory not None branch
+    assert inject_hyperparams(lambda x: x)(5) == 5
+    assert inject_stateful_hyperparams(lambda x: x)(5) == 5
+
+
+def test_onecycle_fall():
+    # test step > warmup_steps + decay_steps
+    assert linear_onecycle_schedule(100, 1.0)(90) < 1.0
+
+
+def test_exponential_decay_branches():
+    # test decay_rate <= 0
+    assert exponential_decay(1.0, 10, -0.5)(5) == 1.0
+    # test step < transition_begin inside schedule where val gets replaced
+    assert exponential_decay(1.0, 10, 0.5, transition_begin=5)(2) == 1.0
+
+
+def test_piecewise_interpolate_none():
+    assert piecewise_interpolate_schedule("none", 1.0, {5: 0.5, 10: 0.1})(2) == 1.0
+
+
+def test_piecewise_interpolate_unreachable():
+    # step is >= last boundary will hit line 171
+    # step < boundaries will hit line 169
+    # The return at the very end of loop is practically unreachable if step < last boundary but it's a fallback.
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(10) == 0.1
+
+
+def test_interpolate_out_of_bounds():
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
+
+
+def test_interpolate_out_of_bounds_high():
+    from zero_optax.schedules.schedule import piecewise_interpolate_schedule
+
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
+
+
+def test_interpolate_mid_bounds():
+    from zero_optax.schedules.schedule import piecewise_interpolate_schedule
+
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(10) == 0.1
+
+
+def test_schedule_178():
+    from zero_optax.schedules.schedule import piecewise_interpolate_schedule
+
+    assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1

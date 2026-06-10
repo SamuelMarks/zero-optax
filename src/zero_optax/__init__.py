@@ -1,3 +1,5 @@
+"""Module docstring."""
+
 import ml_switcheroo
 
 "zero_optax root module."
