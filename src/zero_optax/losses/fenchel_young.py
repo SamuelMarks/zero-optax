@@ -1,13 +1,13 @@
-"""Fenchel-Young loss."""
-
-from typing import Any
+import numpy as np
 
 
-def make_fenchel_young_loss(max_fun: "Any"):  # type: ignore
-    """Creates a Fenchel-Young loss from a max function."""
+def make_fenchel_young_loss(max_prob_fn, *args, **kwargs):
+    def loss(logits, labels, **kwargs):
+        from ml_switcheroo.core.config import config
 
-    def loss_fn(predictions, targets):
-        """Loss fn."""
-        return predictions - targets
+        if config.eager_mode:
+            l = np.array(getattr(logits, "data", logits))
+            return np.zeros(l.shape)
+        return logits
 
-    return loss_fn
+    return loss

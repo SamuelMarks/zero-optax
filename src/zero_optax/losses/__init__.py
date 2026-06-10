@@ -1,5 +1,6 @@
-"""zero_optax losses package."""
+import ml_switcheroo
 
+"zero_optax losses package."
 from zero_optax.losses.regression import squared_error, l2_loss, huber_loss
 from zero_optax.losses.classification import (
     hinge_loss,

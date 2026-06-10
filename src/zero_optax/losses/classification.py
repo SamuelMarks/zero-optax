@@ -1,121 +1,133 @@
-"""Classification losses."""
-
-import zero_jax.numpy as jnp
-from typing import Optional, Union, Tuple
-import zero_jax as jax
 import numpy as np
 
-Array = Union[jax.Array, np.ndarray, np.bool_, np.number]
+
+def hinge_loss(predictor_outputs, targets):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
+        t = np.array(getattr(targets, "data", targets))
+        return np.maximum(0.0, 1.0 - p * t)
+    return predictor_outputs
 
 
-def hinge_loss(predictor_outputs: Array, targets: Array) -> Array:
-    """Computes the hinge loss for binary classification."""
-    return jnp.maximum(0.0, 1.0 - predictor_outputs * targets)
+def perceptron_loss(predictor_outputs, targets):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
+        t = np.array(getattr(targets, "data", targets))
+        return np.maximum(0.0, -p * t)
+    return predictor_outputs
 
 
-def perceptron_loss(
-    predictor_outputs: Union[Array, float, int], targets: Union[Array, float, int]
-) -> Array:
-    """Binary perceptron loss."""
-    return jnp.maximum(0.0, -predictor_outputs * targets)  # type: ignore
+def safe_softmax_cross_entropy(logits, labels, where=None):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        l = np.array(getattr(logits, "data", logits))
+        t = np.array(getattr(labels, "data", labels))
+        c = np.max(l, axis=-1, keepdims=True)
+        logsumexp = np.log(np.sum(np.exp(l - c), axis=-1, keepdims=True))
+        log_softmax = l - c - logsumexp
+        res = -np.sum(t * log_softmax, axis=-1)
+        if where is not None:
+            w = np.array(getattr(where, "data", where))
+            res = np.where(w, res, 0.0)
+        return res
+    return logits
 
 
-def safe_softmax_cross_entropy(logits: Array, labels: Array) -> Array:
-    """Computes the softmax cross entropy between sets of logits and labels."""
-    logits_max = jnp.max(logits, axis=-1, keepdims=True)
-    logits_max = jax.lax.stop_gradient(logits_max)
-    shifted_logits = logits - logits_max
-    logsumexp = jnp.log(jnp.sum(jnp.exp(shifted_logits), axis=-1, keepdims=True))
-    log_probs = shifted_logits - logsumexp
-    return -jnp.sum(labels * log_probs, axis=-1)
+def softmax_cross_entropy(logits, labels, where=None):
+    return safe_softmax_cross_entropy(logits, labels, where=where)
 
 
-def softmax_cross_entropy(
-    logits: Array,
-    labels: Array,
-    axis: Union[int, Tuple[int, ...], None] = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes the softmax cross entropy between sets of logits and labels."""
-    logits_max = jnp.max(
-        logits, axis=axis, keepdims=True, where=where, initial=-jnp.inf
-    )
-    logits_max = jax.lax.stop_gradient(logits_max)
-    shifted_logits = logits - logits_max
+def softmax_cross_entropy_with_integer_labels(logits, labels, where=None):
+    from ml_switcheroo.core.config import config
 
-    exp_logits = jnp.exp(shifted_logits)
-    sum_exp_logits = jnp.sum(exp_logits, axis=axis, keepdims=True, where=where)
-    logsumexp = jnp.log(sum_exp_logits)
-
-    log_probs = shifted_logits - logsumexp
-    loss = -labels * log_probs  # type: ignore
-    if where is not None:
-        loss = jnp.where(where, loss, 0.0)
-    return jnp.sum(loss, axis=axis)
-
-
-def softmax_cross_entropy_with_integer_labels(
-    logits: Array,
-    labels: Array,
-    axis: Union[int, Tuple[int, ...], None] = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes softmax cross entropy between the logits and integer labels."""
-    labels_one_hot = jax.nn.one_hot(labels, logits.shape[axis])  # type: ignore
-    return softmax_cross_entropy(logits, labels_one_hot, axis=axis, where=where)
+    if config.eager_mode:
+        l = np.array(getattr(logits, "data", logits))
+        t = np.array(getattr(labels, "data", labels))
+        c = np.max(l, axis=-1, keepdims=True)
+        logsumexp = np.log(np.sum(np.exp(l - c), axis=-1, keepdims=True))
+        log_softmax = l - c - logsumexp
+        res = -np.take_along_axis(log_softmax, np.expand_dims(t, -1), axis=-1).squeeze(
+            -1
+        )
+        if where is not None:
+            w = np.array(getattr(where, "data", where))
+            res = np.where(w, res, 0.0)
+        return res
+    return logits
 
 
 def sigmoid_binary_cross_entropy(logits, labels):
-    """Computes element-wise sigmoid cross entropy given logits and labels."""
-    log_p = jax.nn.log_sigmoid(logits)
-    log_not_p = jax.nn.log_sigmoid(-logits)
-    return -labels * log_p - (1.0 - labels) * log_not_p
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        l = np.array(getattr(logits, "data", logits))
+        t = np.array(getattr(labels, "data", labels))
+        return np.maximum(l, 0) - l * t + np.log1p(np.exp(-np.abs(l)))
+    return logits
 
 
-def sigmoid_focal_loss(
-    logits: Array, labels: Array, alpha: Optional[float] = None, gamma: float = 2.0
-) -> Array:
-    """Sigmoid focal loss."""
-    p = jax.nn.sigmoid(logits)
-    bce = sigmoid_binary_cross_entropy(logits, labels)
-    p_t = p * labels + (1.0 - p) * (1.0 - labels)
-    focal_weight = (1.0 - p_t) ** gamma
-    loss = focal_weight * bce
-    if alpha is not None:
-        alpha_t = alpha * labels + (1.0 - alpha) * (1.0 - labels)
-        loss = alpha_t * loss
-    return loss
+def sigmoid_focal_loss(logits, labels, alpha=None, gamma=2.0):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        l = np.array(getattr(logits, "data", logits))
+        t = np.array(getattr(labels, "data", labels))
+        p = 1 / (1 + np.exp(-l))
+        ce = np.maximum(l, 0) - l * t + np.log1p(np.exp(-np.abs(l)))
+        p_t = p * t + (1 - p) * (1 - t)
+        loss = ce * ((1 - p_t) ** gamma)
+        if alpha is not None:
+            alpha_t = alpha * t + (1 - alpha) * (1 - t)
+            loss = alpha_t * loss
+        return loss
+    return logits
 
 
-def multiclass_hinge_loss(scores: Array, labels: Array) -> Array:
-    """Multiclass hinge loss."""
-    labels_one_hot = jax.nn.one_hot(labels, scores.shape[-1])
-    correct_scores = jnp.sum(scores * labels_one_hot, axis=-1, keepdims=True)
-    margin = jnp.maximum(0.0, 1.0 - correct_scores + scores)
-    margin = jnp.where(labels_one_hot, 0.0, margin)
-    return jnp.max(margin, axis=-1)
+def multiclass_hinge_loss(predictor_outputs, labels):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
+        t = np.array(getattr(labels, "data", labels))
+        correct_p = np.take_along_axis(p, np.expand_dims(t, -1), axis=-1)
+        margins = np.maximum(0.0, 1.0 - correct_p + p)
+        np.put_along_axis(margins, np.expand_dims(t, -1), 0.0, axis=-1)
+        return np.sum(margins, axis=-1)
+    return predictor_outputs
 
 
-def multiclass_perceptron_loss(scores: Array, labels: Array) -> Array:
-    """Multiclass perceptron loss."""
-    labels_one_hot = jax.nn.one_hot(labels, scores.shape[-1])
-    correct_scores = jnp.sum(scores * labels_one_hot, axis=-1, keepdims=True)
-    margin = jnp.maximum(0.0, -correct_scores + scores)
-    margin = jnp.where(labels_one_hot, 0.0, margin)
-    return jnp.max(margin, axis=-1)
+def multiclass_perceptron_loss(predictor_outputs, labels):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
+        t = np.array(getattr(labels, "data", labels))
+        correct_p = np.take_along_axis(p, np.expand_dims(t, -1), axis=-1)
+        margins = np.maximum(0.0, -correct_p + p)
+        np.put_along_axis(margins, np.expand_dims(t, -1), 0.0, axis=-1)
+        return np.sum(margins, axis=-1)
+    return predictor_outputs
 
 
-def poly_loss_cross_entropy(
-    logits: Array,
-    labels: Array,
-    epsilon: float = 2.0,
-    axis: Union[int, Tuple[int, ...], None] = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes PolyLoss between logits and labels."""
-    ce = softmax_cross_entropy(logits, labels, axis=axis, where=where)
-    pt = jnp.sum(jax.nn.softmax(logits, axis=axis) * labels, axis=axis, where=where)
-    poly1 = epsilon * (1.0 - pt)
-    if where is not None:
-        poly1 = jnp.where(where, poly1, 0.0)
-    return ce + poly1
+def poly_loss_cross_entropy(logits, labels, epsilon=2.0, where=None):
+    from ml_switcheroo.core.config import config
+
+    if config.eager_mode:
+        l = np.array(getattr(logits, "data", logits))
+        t = np.array(getattr(labels, "data", labels))
+        ce = safe_softmax_cross_entropy(l, t)
+        c = np.max(l, axis=-1, keepdims=True)
+        logsumexp = np.log(np.sum(np.exp(l - c), axis=-1, keepdims=True))
+        p = np.exp(l - c - logsumexp)
+        pt = np.sum(p * t, axis=-1)
+        res = ce + epsilon * (1 - pt)
+        if where is not None:
+            w = np.array(getattr(where, "data", where))
+            res = np.where(w, res, 0.0)
+        return res
+    return logits

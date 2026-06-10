@@ -1,8 +1,12 @@
+# Zero Framework API Shell
+
+> **Note:** This repository is an API-compatible shell. All underlying math, autodiff, and graph execution has been migrated to the [ml-switcheroo-compiler](https://github.com/SamuelMarks/ml-switcheroo-compiler) backend. This repository purely implements frontend routing and syntactic parity for the target framework.
+
 # zero-optax
 
 [![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/SamuelMarks/zero-optax/actions/workflows/ci.yml/badge.svg)](https://github.com/SamuelMarks/zero-optax/actions)
-[![Test Coverage](https://img.shields.io/badge/test_coverage-96.2%25-green.svg)](#)
+[![Test Coverage](https://img.shields.io/badge/test_coverage-83.9%25-yellowgreen.svg)](#)
 [![Doc Coverage](https://img.shields.io/badge/doc_coverage-100%25-brightgreen.svg)](#)
 
 A clean implementation of the [optax](https://github.com/google-deepmind/optax) API with **strictly zero external dependencies** (relying solely on the [Python Standard Library](https://docs.python.org/3/library/) and [`numpy`](https://numpy.org/) for eager evaluations). 

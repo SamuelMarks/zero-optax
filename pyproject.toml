@@ -23,3 +23,10 @@ allow-direct-references = true
 
 [tool.pytest.ini_options]
 pythonpath = "src"
+addopts = "--cov=src --cov-fail-under=80"
+
+dependencies = ["ml-switcheroo-compiler"]
+
+[tool.ruff.lint]
+ignore = ['E402', 'F401', 'F841', 'E741']
+

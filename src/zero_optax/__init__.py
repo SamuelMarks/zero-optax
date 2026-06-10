@@ -1,5 +1,6 @@
-"""zero_optax root module."""
+import ml_switcheroo
 
+"zero_optax root module."
 from zero_optax import losses
 from zero_optax import schedules
 

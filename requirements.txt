@@ -1,2 +1,3 @@
 numpy
-zero_jax @ git+https://github.com/SamuelMarks/zero-jax.git@710a8cdc74dacdd06f53b06dd047108996f5f2ba
+zero_jax
+ml-switcheroo-compiler
