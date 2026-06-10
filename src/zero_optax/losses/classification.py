@@ -2,11 +2,13 @@
 
 from typing import Any, Optional, Union, Tuple
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
+import zero_jax.nn as jnn
 
 
-def hinge_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.Array:
+def hinge_loss(predictor_outputs: Array, targets: Array) -> Array:
     """Compute the hinge loss.
 
     Args:
@@ -17,16 +19,12 @@ def hinge_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.Array
         The hinge loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
-        t = np.array(getattr(targets, "data", targets))
-        return np.maximum(0.0, 1.0 - p * t)
-    return predictor_outputs
+    p = jnp.asarray(predictor_outputs)
+    t = jnp.asarray(targets)
+    return cast(Array, jnp.maximum(0.0, 1.0 - p * t))
 
 
-def perceptron_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.Array:
+def perceptron_loss(predictor_outputs: Array, targets: Array) -> Array:
     """Compute the perceptron loss.
 
     Args:
@@ -37,21 +35,17 @@ def perceptron_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.
         The perceptron loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
-        t = np.array(getattr(targets, "data", targets))
-        return np.maximum(0.0, -p * t)
-    return predictor_outputs
+    p = jnp.asarray(predictor_outputs)
+    t = jnp.asarray(targets)
+    return cast(Array, jnp.maximum(0.0, -p * t))
 
 
 def safe_softmax_cross_entropy(
-    logits: chex.Array,
-    labels: chex.Array,
+    logits: Array,
+    labels: Array,
     axis: int = -1,
-    where: Optional[chex.Array] = None,
-) -> chex.Array:
+    where: Optional[Array] = None,
+) -> Array:
     """Compute the safe softmax cross entropy.
 
     Args:
@@ -64,49 +58,49 @@ def safe_softmax_cross_entropy(
         The safe softmax cross entropy loss.
 
     """
-    from ml_switcheroo.core.config import config
+    l = jnp.asarray(logits)
+    t = jnp.asarray(labels)
+    if where is not None:
+        w = jnp.asarray(where)
+        l = jnp.where(w, l, -jnp.inf)
+        t = jnp.where(w, t, 0.0)
 
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        t = np.array(getattr(labels, "data", labels))
-        if where is not None:
-            w = np.array(getattr(where, "data", where))
-            l = np.where(w, l, -np.inf)
-            t = np.where(w, t, 0.0)
+    if 0 in l.shape:
+        return (
+            cast(Array, jnp.zeros_like(t))
+            if where is None
+            else cast(Array, jnp.zeros_like(t))
+        )
 
-        if l.size == 0:
-            return np.zeros_like(t) if where is None else np.zeros_like(t)
+    c = jnp.max(l, axis=axis, keepdims=True)
+    c = jnp.where((jnp.abs(c) == jnp.inf), 0.0, c)
 
-        c = np.max(l, axis=axis, keepdims=True)
-        c = np.where(np.isinf(c), 0.0, c)
+    # Avoid nan from -inf - (-inf)
+    l_minus_c = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l - c)
 
-        # Avoid nan from -inf - (-inf)
-        l_minus_c = np.where(np.isinf(l), -np.inf, l - c)
+    exp_l_c = jnp.exp(l_minus_c)
+    if where is not None:
+        exp_l_c = jnp.where(w, exp_l_c, 0.0)
 
-        exp_l_c = np.exp(l_minus_c)
-        if where is not None:
-            exp_l_c = np.where(w, exp_l_c, 0.0)
+    sumexp = jnp.sum(exp_l_c, axis=axis, keepdims=True)
+    logsumexp = jnp.log(jnp.where(sumexp == 0, 1.0, sumexp))
 
-        sumexp = np.sum(exp_l_c, axis=axis, keepdims=True)
-        logsumexp = np.log(np.where(sumexp == 0, 1.0, sumexp))
+    log_softmax = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l_minus_c - logsumexp)
+    if where is not None:
+        log_softmax = jnp.where(w, log_softmax, 0.0)
 
-        log_softmax = np.where(np.isinf(l), -np.inf, l_minus_c - logsumexp)
-        if where is not None:
-            log_softmax = np.where(w, log_softmax, 0.0)
-
-        t_times_log = t * log_softmax
-        t_times_log = np.where(t == 0.0, 0.0, t_times_log)
-        res = -np.sum(t_times_log, axis=axis)
-        return res
-    return logits
+    t_times_log = t * log_softmax
+    t_times_log = jnp.where(t == 0.0, 0.0, t_times_log)
+    res = -jnp.sum(t_times_log, axis=axis)
+    return cast(Array, res)
 
 
 def softmax_cross_entropy(
-    logits: chex.Array,
-    labels: chex.Array,
+    logits: Array,
+    labels: Array,
     axis: int = -1,
-    where: Optional[chex.Array] = None,
-) -> chex.Array:
+    where: Optional[Array] = None,
+) -> Array:
     """Compute the softmax cross entropy.
 
     Args:
@@ -123,11 +117,11 @@ def softmax_cross_entropy(
 
 
 def softmax_cross_entropy_with_integer_labels(
-    logits: chex.Array,
-    labels: chex.Array,
+    logits: Array,
+    labels: Array,
     axis: int = -1,
-    where: Optional[chex.Array] = None,
-) -> chex.Array:
+    where: Optional[Array] = None,
+) -> Array:
     """Compute softmax cross entropy with integer labels.
 
     Args:
@@ -140,28 +134,28 @@ def softmax_cross_entropy_with_integer_labels(
         The softmax cross entropy loss.
 
     """
-    from ml_switcheroo.core.config import config
+    l = jnp.asarray(logits)
+    t = jnp.asarray(labels)
+    if 0 in l.shape:
+        return (
+            cast(Array, jnp.zeros_like(t))
+            if where is None
+            else cast(Array, jnp.zeros_like(t))
+        )
 
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        t = np.array(getattr(labels, "data", labels))
-        if l.size == 0:
-            return np.zeros_like(t) if where is None else np.zeros_like(t)
-
-        c = np.max(l, axis=axis, keepdims=True)
-        logsumexp = np.log(np.sum(np.exp(l - c), axis=axis, keepdims=True))
-        log_softmax = l - c - logsumexp
-        res = -np.take_along_axis(
-            log_softmax, np.expand_dims(t, axis), axis=axis
-        ).squeeze(axis)
-        if where is not None:
-            w = np.array(getattr(where, "data", where))
-            res = np.where(w, res, 0.0)
-        return res
-    return logits
+    c = jnp.max(l, axis=axis, keepdims=True)
+    logsumexp = jnp.log(jnp.sum(jnp.exp(l - c), axis=axis, keepdims=True))
+    log_softmax = l - c - logsumexp
+    res = -jnp.squeeze(
+        jnp.take_along_axis(log_softmax, jnp.expand_dims(t, axis), axis=axis), axis=axis
+    )
+    if where is not None:
+        w = jnp.asarray(where)
+        res = jnp.where(w, res, 0.0)
+    return cast(Array, res)
 
 
-def sigmoid_binary_cross_entropy(logits: chex.Array, labels: chex.Array) -> chex.Array:
+def sigmoid_binary_cross_entropy(logits: Array, labels: Array) -> Array:
     """Compute the sigmoid binary cross entropy.
 
     Args:
@@ -172,21 +166,17 @@ def sigmoid_binary_cross_entropy(logits: chex.Array, labels: chex.Array) -> chex
         The sigmoid binary cross entropy loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        t = np.array(getattr(labels, "data", labels))
-        return np.maximum(l, 0) - l * t + np.log1p(np.exp(-np.abs(l)))
-    return logits
+    l = jnp.asarray(logits)
+    t = jnp.asarray(labels)
+    return cast(Array, jnp.maximum(l, 0) - l * t + jnp.log1p(jnp.exp(-jnp.abs(l))))
 
 
 def sigmoid_focal_loss(
-    logits: chex.Array,
-    labels: chex.Array,
+    logits: Array,
+    labels: Array,
     alpha: Optional[float] = None,
     gamma: float = 2.0,
-) -> chex.Array:
+) -> Array:
     """Compute the sigmoid focal loss.
 
     Args:
@@ -199,25 +189,19 @@ def sigmoid_focal_loss(
         The sigmoid focal loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        t = np.array(getattr(labels, "data", labels))
-        p = 1 / (1 + np.exp(-l))
-        ce = np.maximum(l, 0) - l * t + np.log1p(np.exp(-np.abs(l)))
-        p_t = p * t + (1 - p) * (1 - t)
-        loss = ce * ((1 - p_t) ** gamma)
-        if alpha is not None:
-            alpha_t = alpha * t + (1 - alpha) * (1 - t)
-            loss = alpha_t * loss
-        return loss
-    return logits
+    l = jnp.asarray(logits)
+    t = jnp.asarray(labels)
+    p = jnn.sigmoid(l)
+    ce = jnp.maximum(l, 0) - l * t + jnp.log1p(jnp.exp(-jnp.abs(l)))
+    p_t = p * t + (1 - p) * (1 - t)
+    loss = ce * ((1 - p_t) ** gamma)
+    if alpha is not None:
+        alpha_t = alpha * t + (1 - alpha) * (1 - t)
+        loss = alpha_t * loss
+    return cast(Array, loss)
 
 
-def multiclass_hinge_loss(
-    predictor_outputs: chex.Array, labels: chex.Array
-) -> chex.Array:
+def multiclass_hinge_loss(predictor_outputs: Array, labels: Array) -> Array:
     """Compute the multiclass hinge loss.
 
     Args:
@@ -228,21 +212,16 @@ def multiclass_hinge_loss(
         The multiclass hinge loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
-        t = np.array(getattr(labels, "data", labels))
-        correct_p = np.take_along_axis(p, np.expand_dims(t, -1), axis=-1)
-        margins = np.maximum(0.0, 1.0 - correct_p + p)
-        np.put_along_axis(margins, np.expand_dims(t, -1), 0.0, axis=-1)
-        return np.sum(margins, axis=-1)
-    return predictor_outputs
+    p = jnp.asarray(predictor_outputs)
+    t = jnp.asarray(labels)
+    correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
+    margins = jnp.maximum(0.0, 1.0 - correct_p + p)
+    mask = jnn.one_hot(t, p.shape[-1])
+    margins = jnp.where(mask, 0.0, margins)
+    return cast(Array, jnp.sum(margins, axis=-1))
 
 
-def multiclass_perceptron_loss(
-    predictor_outputs: chex.Array, labels: chex.Array
-) -> chex.Array:
+def multiclass_perceptron_loss(predictor_outputs: Array, labels: Array) -> Array:
     """Compute the multiclass perceptron loss.
 
     Args:
@@ -253,25 +232,22 @@ def multiclass_perceptron_loss(
         The multiclass perceptron loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictor_outputs, "data", predictor_outputs))
-        t = np.array(getattr(labels, "data", labels))
-        correct_p = np.take_along_axis(p, np.expand_dims(t, -1), axis=-1)
-        margins = np.maximum(0.0, -correct_p + p)
-        np.put_along_axis(margins, np.expand_dims(t, -1), 0.0, axis=-1)
-        return np.sum(margins, axis=-1)
-    return predictor_outputs
+    p = jnp.asarray(predictor_outputs)
+    t = jnp.asarray(labels)
+    correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
+    margins = jnp.maximum(0.0, -correct_p + p)
+    mask = jnn.one_hot(t, p.shape[-1])
+    margins = jnp.where(mask, 0.0, margins)
+    return cast(Array, jnp.sum(margins, axis=-1))
 
 
 def poly_loss_cross_entropy(
-    logits: chex.Array,
-    labels: chex.Array,
+    logits: Array,
+    labels: Array,
     epsilon: float = 2.0,
     axis: int = -1,
-    where: Optional[chex.Array] = None,
-) -> chex.Array:
+    where: Optional[Array] = None,
+) -> Array:
     """Compute the poly loss cross entropy.
 
     Args:
@@ -285,40 +261,40 @@ def poly_loss_cross_entropy(
         The poly loss cross entropy loss.
 
     """
-    from ml_switcheroo.core.config import config
+    l = jnp.asarray(logits)
+    t = jnp.asarray(labels)
+    ce = safe_softmax_cross_entropy(l, t, axis=axis, where=where)
+    if where is not None:
+        w = jnp.asarray(where)
+        l = jnp.where(w, l, -jnp.inf)
+        t = jnp.where(w, t, 0.0)
 
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        t = np.array(getattr(labels, "data", labels))
-        ce = safe_softmax_cross_entropy(l, t, axis=axis, where=where)
-        if where is not None:
-            w = np.array(getattr(where, "data", where))
-            l = np.where(w, l, -np.inf)
-            t = np.where(w, t, 0.0)
+    if 0 in l.shape:
+        return (
+            cast(Array, jnp.zeros_like(t))
+            if where is None
+            else cast(Array, jnp.zeros_like(t))
+        )
 
-        if l.size == 0:
-            return np.zeros_like(t) if where is None else np.zeros_like(t)
+    c = jnp.max(l, axis=axis, keepdims=True)
+    c = jnp.where((jnp.abs(c) == jnp.inf), 0.0, c)
 
-        c = np.max(l, axis=axis, keepdims=True)
-        c = np.where(np.isinf(c), 0.0, c)
+    # Avoid nan from -inf - (-inf)
+    l_minus_c = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l - c)
 
-        # Avoid nan from -inf - (-inf)
-        l_minus_c = np.where(np.isinf(l), -np.inf, l - c)
+    exp_l_c = jnp.exp(l_minus_c)
+    if where is not None:
+        exp_l_c = jnp.where(w, exp_l_c, 0.0)
 
-        exp_l_c = np.exp(l_minus_c)
-        if where is not None:
-            exp_l_c = np.where(w, exp_l_c, 0.0)
+    sumexp = jnp.sum(exp_l_c, axis=axis, keepdims=True)
+    logsumexp = jnp.log(jnp.where(sumexp == 0, 1.0, sumexp))
 
-        sumexp = np.sum(exp_l_c, axis=axis, keepdims=True)
-        logsumexp = np.log(np.where(sumexp == 0, 1.0, sumexp))
+    p = jnp.exp(l - c - logsumexp)
+    if where is not None:
+        p = jnp.where(w, p, 0.0)
 
-        p = np.exp(l - c - logsumexp)
-        if where is not None:
-            p = np.where(w, p, 0.0)
+    pt = jnp.sum(p * t, axis=axis)
 
-        pt = np.sum(p * t, axis=axis)
-
-        one_minus_pt = np.sum(t * (1.0 - p), axis=axis)
-        res = ce + epsilon * one_minus_pt
-        return res
-    return logits
+    one_minus_pt = jnp.sum(t * (1.0 - p), axis=axis)
+    res = ce + epsilon * one_minus_pt
+    return cast(Array, res)

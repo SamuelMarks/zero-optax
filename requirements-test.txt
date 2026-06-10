@@ -1,0 +1,7 @@
+pytest
+chex
+jax
+jaxlib
+absl-py
+numpy
+optax

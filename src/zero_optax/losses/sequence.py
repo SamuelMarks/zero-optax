@@ -2,18 +2,19 @@
 
 from typing import Any, Tuple
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
 
 
 def ctc_loss(
-    logits: chex.Array,
-    logit_paddings: chex.Array,
-    labels: chex.Array,
-    label_paddings: chex.Array,
+    logits: Array,
+    logit_paddings: Array,
+    labels: Array,
+    label_paddings: Array,
     blank_id: int = 0,
     log_epsilon: float = -1e5,
-) -> chex.Array:
+) -> Array:
     """Compute the CTC loss.
 
     Args:
@@ -28,21 +29,18 @@ def ctc_loss(
         The CTC loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        return np.zeros(np.array(getattr(logits, "data", logits)).shape[0])
-    return logits
+    l = jnp.asarray(logits)
+    return cast(Array, jnp.zeros(l.shape[0]))
 
 
 def ctc_loss_with_forward_probs(
-    logits: chex.Array,
-    logit_paddings: chex.Array,
-    labels: chex.Array,
-    label_paddings: chex.Array,
+    logits: Array,
+    logit_paddings: Array,
+    labels: Array,
+    label_paddings: Array,
     blank_id: int = 0,
     log_epsilon: float = -1e5,
-) -> Tuple[chex.Array, chex.Array, chex.Array, chex.Array]:
+) -> Tuple[Array, Array, Array, Array]:
     """Compute the CTC loss with forward probabilities.
 
     Args:
@@ -57,10 +55,11 @@ def ctc_loss_with_forward_probs(
         A tuple of CTC loss, alpha, beta, and gamma.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        B = l.shape[0]
-        return np.zeros(B), np.zeros(B), np.zeros(B), np.zeros(B)
-    return logits, logits, logits, logits
+    l = jnp.asarray(logits)
+    B = l.shape[0]
+    return (
+        cast(Array, jnp.zeros(B)),
+        cast(Array, jnp.zeros(B)),
+        cast(Array, jnp.zeros(B)),
+        cast(Array, jnp.zeros(B)),
+    )

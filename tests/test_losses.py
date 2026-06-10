@@ -24,7 +24,7 @@ from zero_optax.losses import (
 from .utils import assert_allclose_optax, numeric_grad
 
 
-def test_regression_losses():
+def test_regression_losses() -> None:
     pred = jnp.array([1.0, 2.0])
     targ = jnp.array([1.0, 1.0])
 
@@ -49,7 +49,7 @@ def test_regression_losses():
     assert_allclose_optax(ngrad, np.array([0.0, 2.0]))
 
 
-def test_classification_losses():
+def test_classification_losses() -> None:
     pred = jnp.array([0.5, -2.0])
     targ = jnp.array([1.0, -1.0])
 
@@ -79,7 +79,7 @@ def test_classification_losses():
     assert poly_loss_cross_entropy(logits, labels_float, where=where).shape == (2,)
 
 
-def test_sequence_losses():
+def test_sequence_losses() -> None:
     logits = jnp.array([[[1.0, 2.0]]])
     paddings = jnp.array([[0]])
     labels = jnp.array([[1]])
@@ -91,7 +91,7 @@ def test_sequence_losses():
     assert ctc_loss(logits, paddings, labels, paddings).shape == (1,)
 
 
-def test_misc_losses():
+def test_misc_losses() -> None:
     logits = jnp.array([[1.0, 2.0], [0.5, 0.5]])
     labels_float = jnp.array([[0.0, 1.0], [1.0, 0.0]])
     labels_int = jnp.array([1, 0])
@@ -106,7 +106,7 @@ def test_misc_losses():
     assert loss_fn(logits, labels_float).shape == (2, 2)
 
 
-def test_classification_gradients():
+def test_classification_gradients() -> None:
     pred = jnp.array(
         [0.5, 2.0]
     )  # For perceptron to be active, -pred*targ > 0 -> pred*targ < 0. Let's make pred=-0.5 for targ=1
@@ -150,7 +150,7 @@ def test_classification_gradients():
     assert not np.isnan(ngrad).any()
 
 
-def test_softmax_losses():
+def test_softmax_losses() -> None:
     # Extreme logits
     logits = jnp.array([[1e5, -1e5], [0.0, 0.0]])
     labels_float = jnp.array([[1.0, 0.0], [0.5, 0.5]])
@@ -179,7 +179,7 @@ def test_softmax_losses():
     assert val4.shape == (2,)
 
 
-def test_softmax_gradients():
+def test_softmax_gradients() -> None:
     logits = jnp.array([[2.0, 1.0, 0.1], [0.5, -0.5, 2.0]])
     labels = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     labels_int = jnp.array([0, 1])
@@ -203,7 +203,7 @@ def test_softmax_gradients():
     assert_allclose_optax(ngrad2, ngrad3)
 
 
-def test_multiclass_margin_gradients():
+def test_multiclass_margin_gradients() -> None:
     logits = jnp.array([[2.0, 1.0, 0.1], [0.5, -0.5, 2.0]])
     labels_int = jnp.array([0, 1])
 
@@ -230,7 +230,7 @@ def test_multiclass_margin_gradients():
     assert not np.isnan(ngrad3).any()
 
 
-def test_fy_loss():
+def test_fy_loss() -> None:
     logits = jnp.array([[1.0, 2.0], [0.5, 0.5]])
     labels_float = jnp.array([[0.0, 1.0], [1.0, 0.0]])
 
@@ -238,7 +238,7 @@ def test_fy_loss():
     assert loss_fn(logits, labels_float).shape == (2, 2)
 
 
-def test_ranking_args():
+def test_ranking_args() -> None:
     logits = jnp.array([[1.0, 2.0], [0.5, 0.5]])
     labels = jnp.array([[0.0, 1.0], [1.0, 0.0]])
     where = jnp.array([True, False])
@@ -250,7 +250,7 @@ def test_ranking_args():
 # Missing tests for sequence / sparsemax
 
 
-def test_missing_losses():
+def test_missing_losses() -> None:
     # Fake config bypass test for 100% logic coverage
     # These implementations are mostly just returning zeros when eager_mode=True
     l = np.array([1.0, 2.0, 3.0])
@@ -262,62 +262,7 @@ def test_missing_losses():
     assert multiclass_sparsemax_loss(l, l).shape == ()
 
 
-def test_non_eager_mode_fallback():
-    import ml_switcheroo
-    import numpy as np
-    from zero_optax.losses import (
-        squared_error,
-        l2_loss,
-        huber_loss,
-        hinge_loss,
-        perceptron_loss,
-        safe_softmax_cross_entropy,
-        softmax_cross_entropy,
-        softmax_cross_entropy_with_integer_labels,
-        sigmoid_binary_cross_entropy,
-        multiclass_hinge_loss,
-        multiclass_perceptron_loss,
-        poly_loss_cross_entropy,
-        ctc_loss,
-        ctc_loss_with_forward_probs,
-        ranking_softmax_loss,
-        sparsemax_loss,
-        multiclass_sparsemax_loss,
-        make_fenchel_young_loss,
-    )
-
-    # mock config eager mode False
-    ml_switcheroo.core.config.eager_mode = False
-
-    x = np.array([1.0])
-
-    assert squared_error(x) is x
-    assert l2_loss(x) is x
-    assert huber_loss(x) is x
-    assert hinge_loss(x, x) is x
-    assert perceptron_loss(x, x) is x
-    assert safe_softmax_cross_entropy(x, x) is x
-    assert softmax_cross_entropy(x, x) is x
-    assert softmax_cross_entropy_with_integer_labels(x, x) is x
-    assert sigmoid_binary_cross_entropy(x, x) is x
-    assert multiclass_hinge_loss(x, x) is x
-    assert multiclass_perceptron_loss(x, x) is x
-    assert poly_loss_cross_entropy(x, x) is x
-    assert ctc_loss(x, x, x, x) is x
-
-    out = ctc_loss_with_forward_probs(x, x, x, x)
-    assert out[0] is x
-
-    assert ranking_softmax_loss(x, x) is x
-    assert sparsemax_loss(x, x) is x
-    assert multiclass_sparsemax_loss(x, x) is x
-    assert make_fenchel_young_loss(lambda z: z)(x, x) is x
-
-    # reset just in case
-    ml_switcheroo.core.config.eager_mode = True
-
-
-def test_classification_edge_cases():
+def test_classification_edge_cases() -> None:
     import numpy as np
     from zero_optax.losses import (
         safe_softmax_cross_entropy,
@@ -327,20 +272,20 @@ def test_classification_edge_cases():
         poly_loss_cross_entropy,
     )
 
-    # l.size == 0
+    # l.shape == (0,)
     empty = np.array([])
-    assert safe_softmax_cross_entropy(empty, empty).size == 0
-    assert softmax_cross_entropy(empty, empty).size == 0
-    assert softmax_cross_entropy_with_integer_labels(empty, empty).size == 0
-    assert poly_loss_cross_entropy(empty, empty).size == 0
+    assert safe_softmax_cross_entropy(empty, empty).shape == (0,)
+    assert softmax_cross_entropy(empty, empty).shape == (0,)
+    assert softmax_cross_entropy_with_integer_labels(empty, empty).shape == (0,)
+    assert poly_loss_cross_entropy(empty, empty).shape == (0,)
 
     # where is not None early returns 0
-    assert safe_softmax_cross_entropy(empty, empty, where=empty).size == 0
-    assert softmax_cross_entropy(empty, empty, where=empty).size == 0
-    assert (
-        softmax_cross_entropy_with_integer_labels(empty, empty, where=empty).size == 0
-    )
-    assert poly_loss_cross_entropy(empty, empty, where=empty).size == 0
+    assert safe_softmax_cross_entropy(empty, empty, where=empty).shape == (0,)
+    assert softmax_cross_entropy(empty, empty, where=empty).shape == (0,)
+    assert softmax_cross_entropy_with_integer_labels(
+        empty, empty, where=empty
+    ).shape == (0,)
+    assert poly_loss_cross_entropy(empty, empty, where=empty).shape == (0,)
 
     # sigmoid_focal_loss alpha is not None branch
     assert sigmoid_focal_loss(np.array([1.0]), np.array([1.0]), alpha=0.5).shape == (1,)
@@ -351,28 +296,8 @@ def test_classification_edge_cases():
     ).shape == (1,)
 
 
-def test_classification_more_edges():
+def test_classification_more_edges() -> None:
     import numpy as np
     from zero_optax.losses import multiclass_hinge_loss
 
     assert multiclass_hinge_loss(np.array([[1.0, 2.0]]), np.array([1])).shape == (1,)
-
-
-def test_multiclass_perceptron_loss_fallback():
-    import numpy as np
-    from zero_optax.losses import multiclass_perceptron_loss
-
-    assert multiclass_perceptron_loss(np.array([[1.0, 2.0]]), np.array([1])).shape == (
-        1,
-    )
-
-
-def test_sigmoid_focal_loss_fallback():
-    import ml_switcheroo
-    import numpy as np
-    from zero_optax.losses import sigmoid_focal_loss
-
-    ml_switcheroo.core.config.eager_mode = False
-    x = np.array([1.0])
-    assert sigmoid_focal_loss(x, x) is x
-    ml_switcheroo.core.config.eager_mode = True

@@ -2,13 +2,12 @@
 
 from typing import Any, Optional
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
 
 
-def squared_error(
-    predictions: chex.Array, targets: Optional[chex.Array] = None
-) -> chex.Array:
+def squared_error(predictions: Array, targets: Optional[Array] = None) -> Array:
     """Compute the squared error.
 
     Args:
@@ -19,21 +18,15 @@ def squared_error(
         The squared error.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictions, "data", predictions))
-        if targets is None:
-            t = np.zeros_like(p)
-        else:
-            t = np.array(getattr(targets, "data", targets))
-        return (p - t) ** 2
-    return predictions
+    p = jnp.asarray(predictions)
+    if targets is None:
+        t = jnp.zeros_like(p)
+    else:
+        t = jnp.asarray(targets)
+    return cast(Array, (p - t) ** 2)
 
 
-def l2_loss(
-    predictions: chex.Array, targets: Optional[chex.Array] = None
-) -> chex.Array:
+def l2_loss(predictions: Array, targets: Optional[Array] = None) -> Array:
     """Compute the L2 loss.
 
     Args:
@@ -44,21 +37,17 @@ def l2_loss(
         The L2 loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictions, "data", predictions))
-        if targets is None:
-            t = np.zeros_like(p)
-        else:
-            t = np.array(getattr(targets, "data", targets))
-        return 0.5 * (p - t) ** 2
-    return predictions
+    p = jnp.asarray(predictions)
+    if targets is None:
+        t = jnp.zeros_like(p)
+    else:
+        t = jnp.asarray(targets)
+    return cast(Array, 0.5 * (p - t) ** 2)
 
 
 def huber_loss(
-    predictions: chex.Array, targets: Optional[chex.Array] = None, delta: float = 1.0
-) -> chex.Array:
+    predictions: Array, targets: Optional[Array] = None, delta: float = 1.0
+) -> Array:
     """Compute the Huber loss.
 
     Args:
@@ -70,14 +59,12 @@ def huber_loss(
         The Huber loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        p = np.array(getattr(predictions, "data", predictions))
-        if targets is None:
-            t = np.zeros_like(p)
-        else:
-            t = np.array(getattr(targets, "data", targets))
-        diff = np.abs(p - t)
-        return np.where(diff < delta, 0.5 * diff**2, delta * (diff - 0.5 * delta))
-    return predictions
+    p = jnp.asarray(predictions)
+    if targets is None:
+        t = jnp.zeros_like(p)
+    else:
+        t = jnp.asarray(targets)
+    diff = jnp.abs(p - t)
+    return cast(
+        Array, jnp.where(diff < delta, 0.5 * diff**2, delta * (diff - 0.5 * delta))
+    )

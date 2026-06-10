@@ -3,8 +3,9 @@
 import math
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
 
 
 def constant_schedule(value: float) -> Callable[[int], float]:
@@ -159,7 +160,7 @@ def exponential_decay(
     transition_begin: int = 0,
     staircase: bool = False,
     end_value: Optional[float] = None,
-) -> Callable[[Union[int, chex.Array]], Union[float, chex.Array]]:
+) -> Callable[[Union[int, Array]], Union[float, Array]]:
     """Create an exponential decay schedule.
 
     Args:
@@ -175,7 +176,7 @@ def exponential_decay(
 
     """
 
-    def schedule(step: Union[int, chex.Array]) -> Union[float, chex.Array]:
+    def schedule(step: Union[int, Array]) -> Union[float, Array]:
         """Evaluate the schedule.
 
         Args:
@@ -188,25 +189,27 @@ def exponential_decay(
         if transition_steps <= 0 or decay_rate <= 0.0:
             return init_value
         p = (step - transition_begin) / transition_steps
-        if np.any(p < 0):
+        if jnp.any(p < 0):
             # for scalar or array
-            p = np.maximum(p, 0)
+            p = jnp.maximum(p, 0)
 
         if staircase:
-            p = np.floor(p)
+            p = jnp.floor(p)
         val = init_value * (decay_rate**p)
 
         # fix p < 0 to be exactly init_value
-        val = np.where(
+        val = jnp.where(
             (step - transition_begin) / transition_steps < 0, init_value, val
         )
 
         if end_value is not None:
             if decay_rate < 1.0:
-                return float(np.maximum(val, end_value))
+                return cast(Union[float, Array], jnp.maximum(val, end_value))
             else:
-                return float(np.minimum(val, end_value))
-        return val
+                return cast(
+                    Union[float, Array], jnp.where(val < end_value, val, end_value)
+                )
+        return cast(Union[float, Array], val)
 
     return schedule
 

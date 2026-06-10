@@ -2,17 +2,18 @@
 
 from typing import Any, Callable, Optional
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
 
 
 def ranking_softmax_loss(
-    logits: chex.Array,
-    labels: chex.Array,
-    weights: Optional[chex.Array] = None,
-    where: Optional[chex.Array] = None,
-    reduce_fn: Optional[Callable[..., Any]] = np.mean,
-) -> chex.Array:
+    logits: Array,
+    labels: Array,
+    weights: Optional[Array] = None,
+    where: Optional[Array] = None,
+    reduce_fn: Optional[Callable[..., Any]] = jnp.mean,
+) -> Array:
     """Compute the ranking softmax loss.
 
     Args:
@@ -26,12 +27,8 @@ def ranking_softmax_loss(
         The ranking softmax loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        res = np.zeros(l.shape[:-1])
-        if reduce_fn is None:
-            return res
-        return reduce_fn(res)
-    return logits
+    l = jnp.asarray(logits)
+    res = jnp.zeros(l.shape[:-1])
+    if reduce_fn is None:
+        return cast(Array, res)
+    return cast(Array, reduce_fn(res))

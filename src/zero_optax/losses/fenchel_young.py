@@ -2,13 +2,14 @@
 
 from typing import Any, Callable
 
-import chex
-import numpy as np
+from zero_jax import Array
+from typing import cast
+import zero_jax.numpy as jnp
 
 
 def make_fenchel_young_loss(
     max_prob_fn: Callable[..., Any], *args: Any, **kwargs: Any
-) -> Callable[..., chex.Array]:
+) -> Callable[..., Array]:
     """Make a Fenchel-Young loss function.
 
     Args:
@@ -21,7 +22,7 @@ def make_fenchel_young_loss(
 
     """
 
-    def loss(logits: chex.Array, labels: chex.Array, **kwargs: Any) -> chex.Array:
+    def loss(logits: Array, labels: Array, **kwargs: Any) -> Array:
         """Compute the Fenchel-Young loss.
 
         Args:
@@ -33,11 +34,7 @@ def make_fenchel_young_loss(
             The Fenchel-Young loss.
 
         """
-        from ml_switcheroo.core.config import config
-
-        if config.eager_mode:
-            l = np.array(getattr(logits, "data", logits))
-            return np.zeros(l.shape)
-        return logits
+        l = jnp.asarray(logits)
+        return cast(Array, jnp.zeros(l.shape))
 
     return loss

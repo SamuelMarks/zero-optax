@@ -50,7 +50,7 @@ dummy_import(
 )
 
 
-def test_base_schedules():
+def test_base_schedules() -> None:
     assert linear_schedule(1.0, 0.0, 10, transition_begin=5)(0) == 1.0
     assert polynomial_schedule(1.0, 0.0, 2, 10, transition_begin=5)(0) == 1.0
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
@@ -92,14 +92,14 @@ def test_base_schedules():
     assert piecewise_interpolate_schedule("none", 1.0, {5: 0.5, 10: 0.1})(7.5) == 0.5
 
 
-def test_join_schedules():
+def test_join_schedules() -> None:
     s1 = constant_schedule(1.0)
     s2 = constant_schedule(2.0)
     assert join_schedules([s1, s2], [10])(5) == 1.0
     assert join_schedules([s1, s2], [10])(15) == 2.0
 
 
-def test_warmup_schedules():
+def test_warmup_schedules() -> None:
     assert warmup_constant_schedule(0.0, 1.0, 10)(5) == 0.5
     assert warmup_constant_schedule(0.0, 1.0, 10)(15) == 1.0
 
@@ -124,7 +124,7 @@ def test_warmup_schedules():
     )
 
 
-def test_cycle_schedules():
+def test_cycle_schedules() -> None:
     assert np.allclose(cosine_onecycle_schedule(100, 1.0)(0), 1.0 / 25.0)
     assert cosine_onecycle_schedule(100, 1.0)(30) == 1.0
     assert np.allclose(cosine_onecycle_schedule(100, 1.0)(100), (1.0 / 25.0) / 1e4)
@@ -147,64 +147,64 @@ def test_cycle_schedules():
     assert sgdr_schedule([])(5) == 0.0
 
 
-def test_inject_schedules():
+def test_inject_schedules() -> None:
     assert inject_hyperparams(None) is None
     assert inject_stateful_hyperparams(None) is None
 
 
-def test_warmup_exponential_branch():
+def test_warmup_exponential_branch() -> None:
     assert (
         warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5, transition_begin=5)(12)
         == 1.0
     )
 
 
-def test_inject_wrappers():
+def test_inject_wrappers() -> None:
     # test inner_factory not None branch
     assert inject_hyperparams(lambda x: x)(5) == 5
     assert inject_stateful_hyperparams(lambda x: x)(5) == 5
 
 
-def test_onecycle_fall():
+def test_onecycle_fall() -> None:
     # test step > warmup_steps + decay_steps
     assert linear_onecycle_schedule(100, 1.0)(90) < 1.0
 
 
-def test_exponential_decay_branches():
+def test_exponential_decay_branches() -> None:
     # test decay_rate <= 0
     assert exponential_decay(1.0, 10, -0.5)(5) == 1.0
     # test step < transition_begin inside schedule where val gets replaced
     assert exponential_decay(1.0, 10, 0.5, transition_begin=5)(2) == 1.0
 
 
-def test_piecewise_interpolate_none():
+def test_piecewise_interpolate_none() -> None:
     assert piecewise_interpolate_schedule("none", 1.0, {5: 0.5, 10: 0.1})(2) == 1.0
 
 
-def test_piecewise_interpolate_unreachable():
+def test_piecewise_interpolate_unreachable() -> None:
     # step is >= last boundary will hit line 171
     # step < boundaries will hit line 169
     # The return at the very end of loop is practically unreachable if step < last boundary but it's a fallback.
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(10) == 0.1
 
 
-def test_interpolate_out_of_bounds():
+def test_interpolate_out_of_bounds() -> None:
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
 
 
-def test_interpolate_out_of_bounds_high():
+def test_interpolate_out_of_bounds_high() -> None:
     from zero_optax.schedules.schedule import piecewise_interpolate_schedule
 
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
 
 
-def test_interpolate_mid_bounds():
+def test_interpolate_mid_bounds() -> None:
     from zero_optax.schedules.schedule import piecewise_interpolate_schedule
 
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(10) == 0.1
 
 
-def test_schedule_178():
+def test_schedule_178() -> None:
     from zero_optax.schedules.schedule import piecewise_interpolate_schedule
 
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1

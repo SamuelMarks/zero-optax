@@ -25,7 +25,6 @@ allow-direct-references = true
 pythonpath = "src"
 addopts = "--cov=zero_optax --cov-fail-under=80"
 
-dependencies = ["ml-switcheroo-compiler"]
 
 [tool.ruff.lint]
 ignore = ['E402', 'F401', 'F841', 'E741']

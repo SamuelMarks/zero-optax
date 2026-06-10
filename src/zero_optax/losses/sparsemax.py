@@ -1,10 +1,11 @@
 """Sparsemax losses."""
 
-import chex
-import numpy as np
+from zero_jax import Array
+import zero_jax.numpy as jnp
+from typing import cast
 
 
-def sparsemax_loss(logits: chex.Array, labels: chex.Array) -> chex.Array:
+def sparsemax_loss(logits: Array, labels: Array) -> Array:
     """Compute the sparsemax loss.
 
     Args:
@@ -15,15 +16,11 @@ def sparsemax_loss(logits: chex.Array, labels: chex.Array) -> chex.Array:
         The sparsemax loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        return np.zeros(l.shape[:-1])
-    return logits
+    l = jnp.asarray(logits)
+    return cast(Array, jnp.zeros(l.shape[:-1]))
 
 
-def multiclass_sparsemax_loss(logits: chex.Array, labels: chex.Array) -> chex.Array:
+def multiclass_sparsemax_loss(logits: Array, labels: Array) -> Array:
     """Compute the multiclass sparsemax loss.
 
     Args:
@@ -34,9 +31,5 @@ def multiclass_sparsemax_loss(logits: chex.Array, labels: chex.Array) -> chex.Ar
         The multiclass sparsemax loss.
 
     """
-    from ml_switcheroo.core.config import config
-
-    if config.eager_mode:
-        l = np.array(getattr(logits, "data", logits))
-        return np.zeros(l.shape[:-1])
-    return logits
+    l = jnp.asarray(logits)
+    return cast(Array, jnp.zeros(l.shape[:-1]))
