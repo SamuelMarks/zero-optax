@@ -1,6 +1,5 @@
-"""Module docstring."""
+"""Base learning rate schedules."""
 
-"""Base schedules."""
 from zero_optax.schedules.schedule import (
     constant_schedule,
     linear_schedule,

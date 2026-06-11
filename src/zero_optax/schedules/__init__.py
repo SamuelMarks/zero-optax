@@ -1,8 +1,7 @@
-"""Module docstring."""
+"""zero_optax schedules package."""
 
 import ml_switcheroo
 
-"zero_optax schedules package."
 from zero_optax.schedules.schedule import (
     constant_schedule,
     join_schedules,

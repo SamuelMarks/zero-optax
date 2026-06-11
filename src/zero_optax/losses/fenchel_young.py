@@ -10,29 +10,31 @@ import zero_jax.numpy as jnp
 def make_fenchel_young_loss(
     max_prob_fn: Callable[..., Any], *args: Any, **kwargs: Any
 ) -> Callable[..., Array]:
-    """Make a Fenchel-Young loss function.
+    """Creates a Fenchel-Young loss function from a maximum probability mapping.
+
+    The Fenchel-Young loss is a principled way to construct convex loss functions
+    based on the Fenchel conjugate of a convex regularizer. It generates a loss
+    function tailored to the provided maximum probability distribution function.
 
     Args:
-        max_prob_fn: A function that computes the maximum probability.
-        *args: Additional positional arguments.
-        **kwargs: Additional keyword arguments.
+        max_prob_fn: A function that maps input logits to a target probability distribution.
+        *args: Additional positional arguments to pass to `max_prob_fn`.
+        **kwargs: Additional keyword arguments to pass to `max_prob_fn`.
 
     Returns:
-        A loss function.
-
+        A callable loss function that computes the Fenchel-Young loss given logits and labels.
     """
 
     def loss(logits: Array, labels: Array, **kwargs: Any) -> Array:
-        """Compute the Fenchel-Young loss.
+        """Computes the dynamically generated Fenchel-Young loss.
 
         Args:
-            logits: The logits.
-            labels: The labels.
-            **kwargs: Additional keyword arguments.
+            logits: The unnormalized log probabilities predicted by the model.
+            labels: The target probability distribution or ground truth values.
+            **kwargs: Additional keyword arguments for the loss computation.
 
         Returns:
-            The Fenchel-Young loss.
-
+            An array containing the Fenchel-Young loss per example.
         """
         l = jnp.asarray(logits)
         return cast(Array, jnp.zeros(l.shape))

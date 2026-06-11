@@ -8,15 +8,19 @@ import zero_jax.numpy as jnp
 
 
 def squared_error(predictions: Array, targets: Optional[Array] = None) -> Array:
-    """Compute the squared error.
+    """Calculates the squared difference between predictions and targets.
+
+    This loss is un-scaled and represents the squared Euclidean distance
+    element-wise between the predicted values and the target values. If targets
+    are omitted, they are assumed to be zero.
 
     Args:
-        predictions: The predictions.
-        targets: The target labels. Defaults to None (zeros).
+        predictions: The predicted values as an Array.
+        targets: The ground truth target labels. If None, targets are implicitly
+            assumed to be an array of zeros with the same shape as predictions.
 
     Returns:
-        The squared error.
-
+        An array of the same shape containing the element-wise squared errors.
     """
     p = jnp.asarray(predictions)
     if targets is None:
@@ -27,15 +31,18 @@ def squared_error(predictions: Array, targets: Optional[Array] = None) -> Array:
 
 
 def l2_loss(predictions: Array, targets: Optional[Array] = None) -> Array:
-    """Compute the L2 loss.
+    """Calculates the standard L2 loss (half the squared error).
+
+    The L2 loss is half of the squared error. The scaling factor of 0.5 is
+    mathematically convenient because it cancels out when the derivative
+    is computed with respect to the predictions.
 
     Args:
-        predictions: The predictions.
-        targets: The target labels. Defaults to None (zeros).
+        predictions: The predicted values as an Array.
+        targets: The ground truth target labels. If None, defaults to an array of zeros.
 
     Returns:
-        The L2 loss.
-
+        An array of the same shape containing the element-wise L2 losses.
     """
     p = jnp.asarray(predictions)
     if targets is None:
@@ -48,16 +55,20 @@ def l2_loss(predictions: Array, targets: Optional[Array] = None) -> Array:
 def huber_loss(
     predictions: Array, targets: Optional[Array] = None, delta: float = 1.0
 ) -> Array:
-    """Compute the Huber loss.
+    """Calculates the Huber loss, a robust loss function for regression.
+
+    Huber loss transitions from a squared error for small errors (less than `delta`)
+    to an absolute error for large errors. This makes it less sensitive to outliers
+    than standard squared error.
 
     Args:
-        predictions: The predictions.
-        targets: The target labels. Defaults to None (zeros).
-        delta: The threshold at which to change from a squared error to an absolute error.
+        predictions: The predicted values as an Array.
+        targets: The ground truth target labels. If None, defaults to zeros.
+        delta: The threshold parameter that determines where the loss transitions
+            from quadratic to linear. Defaults to 1.0.
 
     Returns:
-        The Huber loss.
-
+        An array of the same shape containing the element-wise Huber losses.
     """
     p = jnp.asarray(predictions)
     if targets is None:

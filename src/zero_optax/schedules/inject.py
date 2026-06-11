@@ -1,6 +1,5 @@
-"""Module docstring."""
+"""Hyperparameter injection schedules."""
 
-"""Inject schedules."""
 from zero_optax.schedules.schedule import (
     inject_hyperparams,
     inject_stateful_hyperparams,

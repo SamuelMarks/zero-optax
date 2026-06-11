@@ -1,6 +1,5 @@
-"""Module docstring."""
+"""Learning rate schedules with initial warmup phases."""
 
-"""Warmup schedules."""
 from zero_optax.schedules.schedule import (
     warmup_constant_schedule,
     warmup_cosine_decay_schedule,
