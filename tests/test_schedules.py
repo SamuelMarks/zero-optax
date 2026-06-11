@@ -208,3 +208,13 @@ def test_schedule_178() -> None:
     from zero_optax.schedules.schedule import piecewise_interpolate_schedule
 
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.1})(15) == 0.1
+
+
+def test_linear_onecycle_schedule_end():
+    sched = linear_onecycle_schedule(100, 1.0)
+    assert sched(95) > 0.0
+
+
+def test_linear_onecycle_schedule_after():
+    sched = linear_onecycle_schedule(100, 1.0)
+    assert sched(105) > 0.0

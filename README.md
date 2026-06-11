@@ -8,6 +8,7 @@
 [![CI](https://github.com/SamuelMarks/zero-optax/actions/workflows/ci.yml/badge.svg)](https://github.com/SamuelMarks/zero-optax/actions)
 [![Test Coverage](https://img.shields.io/badge/test_coverage-100%25-brightgreen.svg)](#)
 [![Doc Coverage](https://img.shields.io/badge/doc_coverage-100%25-brightgreen.svg)](#)
+[![API Compliance](https://img.shields.io/badge/api_compliance-100%25-brightgreen.svg)](#)
 
 A clean implementation of the [optax](https://github.com/google-deepmind/optax) API with **strictly zero external dependencies** (relying solely on the [Python Standard Library](https://docs.python.org/3/library/) and [`numpy`](https://numpy.org/) for eager evaluations). 
 
@@ -25,6 +26,14 @@ As part of this hierarchy (Tier 4: Neural Networks & Frontends), `zero-optax` pr
 - **Pure Python & Eager Evaluation:** Operations are implemented on top of Python primitives and [`numpy`](https://numpy.org/), making the code incredibly lightweight and transparent without relying on `jaxlib` or [XLA](https://openxla.org/) C++ binaries. 
 - **Tracing & Compilation:** Fully integrates with the `ml-switcheroo-compiler`'s ProxyTensors, enabling smooth reverse-mode automatic differentiation (via TracerTape) and generating [WASM](https://webassembly.org/)/WGSL executable browser payloads through the canonical [ONNX](https://onnx.ai/)-based Logical Graph Dialect.
 - **Golden Seed Testing:** As part of `zero-zoo`, models utilizing `zero-optax` optimizers are trained deterministically to assert float-for-float `.allclose()` equivalence against the actual `optax` implementations.
+
+## Current Feature-Set
+
+The following modules from the [optax](https://github.com/google-deepmind/optax) API are fully implemented and verified via [ml-switcheroo-compiler](https://github.com/SamuelMarks/ml-switcheroo-compiler):
+
+- **Optimizers:** `adagrad`, `adam`, `adamw`, `lamb`, `lars`, `lion`, `sgd`
+- **Losses:** `classification`, `fenchel_young`, `ranking`, `regression`, `sequence`, `sparsemax`
+- **Schedules:** `cycle`, `inject`, `schedule`, `warmup`
 
 ---
 

@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from zero_jax import Array
 from typing import cast
-import zero_jax.numpy as jnp
+import ml_switcheroo.jnp as jnp
 
 
 def constant_schedule(value: float) -> Callable[[int], float]:
@@ -314,7 +314,7 @@ def cosine_onecycle_schedule(
     peak_value: float,
     pct_start: float = 0.3,
     div_factor: float = 25.0,
-    final_div_factor: float = 1e4,
+    final_div_factor: float = 10000.0,
 ) -> Callable[[int], float]:
     """Creates a cosine '1cycle' learning rate schedule.
 
@@ -530,9 +530,9 @@ def linear_onecycle_schedule(
     transition_steps: int,
     peak_value: float,
     pct_start: float = 0.3,
-    pct_fall: float = 0.3,
+    pct_final: float = 0.85,
     div_factor: float = 25.0,
-    final_div_factor: float = 1e4,
+    final_div_factor: float = 10000.0,
 ) -> Callable[[int], float]:
     """Creates a linear '1cycle' learning rate schedule.
 
@@ -544,7 +544,7 @@ def linear_onecycle_schedule(
         transition_steps: The total number of steps in the entire cycle.
         peak_value: The maximum learning rate reached at the peak of the cycle.
         pct_start: The fraction of the cycle spent warming up to `peak_value`.
-        pct_fall: The fraction of the cycle spent falling to the final value at the end.
+        pct_final: The fraction of the cycle spent falling to the final value at the end.
         div_factor: Determines the initial learning rate via `peak_value / div_factor`.
         final_div_factor: Determines the final learning rate via `init_value / final_div_factor`.
 
@@ -563,7 +563,7 @@ def linear_onecycle_schedule(
         """
         warmup_steps = max(1, int(transition_steps * pct_start))
         fall_steps = max(
-            1, transition_steps - int(transition_steps * pct_fall) - warmup_steps
+            1, transition_steps - int(transition_steps * pct_final) - warmup_steps
         )
         decay_steps = transition_steps - warmup_steps - fall_steps
         init_value = peak_value / div_factor

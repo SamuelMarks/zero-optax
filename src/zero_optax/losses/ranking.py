@@ -4,7 +4,7 @@ from typing import Any, Callable, Optional
 
 from zero_jax import Array
 from typing import cast
-import zero_jax.numpy as jnp
+import ml_switcheroo.jnp as jnp
 
 
 def ranking_softmax_loss(

@@ -1,9 +1,6 @@
-Extracting target APIs from /Users/samuel/repos/zero-optax/src/zero_optax...
-Scoring compliance...
-
+# OPTAX_TODO.md
 --- Compliance Report ---
 Overall Compliance: 100.0%
 
 Breakdown by Module:
-  - optax.losses: 100.0% (19/19)
-  - optax.schedules: 100.0% (16/16)
+  - optax: 100.0% (68/68)

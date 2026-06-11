@@ -280,7 +280,7 @@ def test_classification_edge_cases() -> None:
     assert poly_loss_cross_entropy(empty, empty).shape == (0,)
 
     # where is not None early returns 0
-    assert safe_softmax_cross_entropy(empty, empty, where=empty).shape == (0,)
+    assert softmax_cross_entropy(empty, empty, where=empty).shape == (0,)
     assert softmax_cross_entropy(empty, empty, where=empty).shape == (0,)
     assert softmax_cross_entropy_with_integer_labels(
         empty, empty, where=empty

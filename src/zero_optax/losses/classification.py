@@ -2,13 +2,14 @@
 
 from typing import Any, Optional, Union, Tuple
 
+import chex
 from zero_jax import Array
 from typing import cast
-import zero_jax.numpy as jnp
+import ml_switcheroo.jnp as jnp
 import zero_jax.nn as jnn
 
 
-def hinge_loss(predictor_outputs: Array, targets: Array) -> Array:
+def hinge_loss(scores: chex.Array, targets: chex.Array) -> chex.Array:
     """Compute the hinge loss.
 
     Args:
@@ -19,12 +20,12 @@ def hinge_loss(predictor_outputs: Array, targets: Array) -> Array:
         The hinge loss.
 
     """
-    p = jnp.asarray(predictor_outputs)
+    p = jnp.asarray(scores)
     t = jnp.asarray(targets)
     return cast(Array, jnp.maximum(0.0, 1.0 - p * t))
 
 
-def perceptron_loss(predictor_outputs: Array, targets: Array) -> Array:
+def perceptron_loss(scores: chex.Numeric, targets: chex.Numeric) -> chex.Numeric:
     """Compute the perceptron loss.
 
     Args:
@@ -35,16 +36,13 @@ def perceptron_loss(predictor_outputs: Array, targets: Array) -> Array:
         The perceptron loss.
 
     """
-    p = jnp.asarray(predictor_outputs)
+    p = jnp.asarray(scores)
     t = jnp.asarray(targets)
     return cast(Array, jnp.maximum(0.0, -p * t))
 
 
-def safe_softmax_cross_entropy(
-    logits: Array,
-    labels: Array,
-    axis: int = -1,
-    where: Optional[Array] = None,
+def _safe_softmax_cross_entropy(
+    logits: Array, labels: Array, axis: int = -1, where: Optional[Array] = None
 ) -> Array:
     """Computes the softmax cross entropy loss safely, avoiding NaN values.
 
@@ -120,7 +118,7 @@ def softmax_cross_entropy(
     Returns:
         An array containing the calculated softmax cross entropy loss.
     """
-    return safe_softmax_cross_entropy(logits, labels, axis=axis, where=where)
+    return _safe_softmax_cross_entropy(logits, labels, axis=axis, where=where)
 
 
 def softmax_cross_entropy_with_integer_labels(
@@ -216,7 +214,7 @@ def sigmoid_focal_loss(
     return cast(Array, loss)
 
 
-def multiclass_hinge_loss(predictor_outputs: Array, labels: Array) -> Array:
+def multiclass_hinge_loss(scores: Array, labels: Array) -> Array:
     """Computes the multiclass formulation of the hinge loss.
 
     This loss penalizes predictions where the correct class's score is not greater
@@ -224,13 +222,13 @@ def multiclass_hinge_loss(predictor_outputs: Array, labels: Array) -> Array:
     for training multiclass support vector machines.
 
     Args:
-        predictor_outputs: The raw scores or logits predicted for each class.
+        scores: The raw scores or logits predicted for each class.
         labels: Integer indices representing the true class for each example.
 
     Returns:
         An array containing the multiclass hinge loss for each example.
     """
-    p = jnp.asarray(predictor_outputs)
+    p = jnp.asarray(scores)
     t = jnp.asarray(labels)
     correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
     margins = jnp.maximum(0.0, 1.0 - correct_p + p)
@@ -239,20 +237,20 @@ def multiclass_hinge_loss(predictor_outputs: Array, labels: Array) -> Array:
     return cast(Array, jnp.sum(margins, axis=-1))
 
 
-def multiclass_perceptron_loss(predictor_outputs: Array, labels: Array) -> Array:
+def multiclass_perceptron_loss(scores: Array, labels: Array) -> Array:
     """Computes the multiclass perceptron loss.
 
     Similar to multiclass hinge loss, but without a margin. It penalizes predictions
     only when an incorrect class has a higher score than the true class.
 
     Args:
-        predictor_outputs: The raw scores or logits predicted for each class.
+        scores: The raw scores or logits predicted for each class.
         labels: Integer indices representing the true class for each example.
 
     Returns:
         An array containing the multiclass perceptron loss for each example.
     """
-    p = jnp.asarray(predictor_outputs)
+    p = jnp.asarray(scores)
     t = jnp.asarray(labels)
     correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
     margins = jnp.maximum(0.0, -correct_p + p)
@@ -287,7 +285,7 @@ def poly_loss_cross_entropy(
     """
     l = jnp.asarray(logits)
     t = jnp.asarray(labels)
-    ce = safe_softmax_cross_entropy(l, t, axis=axis, where=where)
+    ce = _safe_softmax_cross_entropy(l, t, axis=axis, where=where)
     if where is not None:
         w = jnp.asarray(where)
         l = jnp.where(w, l, -jnp.inf)
@@ -322,3 +320,10 @@ def poly_loss_cross_entropy(
     one_minus_pt = jnp.sum(t * (1.0 - p), axis=axis)
     res = ce + epsilon * one_minus_pt
     return cast(Array, res)
+
+
+def safe_softmax_cross_entropy(logits: Array, labels: Array) -> Array:
+    """Computes the safe softmax cross entropy."""
+    return cast(
+        Array, _safe_softmax_cross_entropy(cast(Array, logits), cast(Array, labels))
+    )

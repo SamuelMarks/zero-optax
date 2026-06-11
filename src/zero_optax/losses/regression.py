@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from zero_jax import Array
 from typing import cast
-import zero_jax.numpy as jnp
+import ml_switcheroo.jnp as jnp
 
 
 def squared_error(predictions: Array, targets: Optional[Array] = None) -> Array:

@@ -12,20 +12,27 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
     steps:
     - uses: actions/checkout@v6
 
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: '3.12'
+        python-version: ${{ matrix.python-version }}
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install ruff pytest pytest-cov build
+        python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" || pip install stdlib-list
         if [ -f "pyproject.toml" ]; then pip install -e . || true; fi
         if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
+
+    - name: Check 3rd-party imports
+      run: python scripts/check_deps.py
 
     - name: Check Code Formatting (Ruff)
       run: ruff format --check .
