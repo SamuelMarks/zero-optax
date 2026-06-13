@@ -1,0 +1,4696 @@
+{
+  "losses": {
+    "convex_kl_divergence": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "cosine_distance": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "cosine_similarity": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "ctc_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logit_paddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "label_paddings"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "blank_id"
+      },
+      {
+        "default": -100000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_epsilon"
+      }
+    ],
+    "ctc_loss_with_forward_probs": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logit_paddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "label_paddings"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "blank_id"
+      },
+      {
+        "default": -100000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_epsilon"
+      }
+    ],
+    "hinge_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictor_outputs"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "huber_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "delta"
+      }
+    ],
+    "kl_divergence": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "kl_divergence_with_log_targets": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_targets"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "l2_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "log_cosh": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "make_fenchel_young_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_fun"
+      }
+    ],
+    "multiclass_hinge_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scores"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "multiclass_perceptron_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scores"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "multiclass_sparsemax_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scores"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "ntxent": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "embeddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": 0.07,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "temperature"
+      }
+    ],
+    "perceptron_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictor_outputs"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "poly_loss_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": 2.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "ranking_softmax_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "where"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "weights"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "reduce_fn"
+      }
+    ],
+    "safe_softmax_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "sigmoid_binary_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "sigmoid_focal_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "alpha"
+      },
+      {
+        "default": 2.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gamma"
+      }
+    ],
+    "smooth_labels": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "alpha"
+      }
+    ],
+    "softmax_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "softmax_cross_entropy_with_integer_labels": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "sparsemax_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "squared_error": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ]
+  },
+  "root": {
+    "AdaptiveGradClipState": [],
+    "AddDecayedWeightsState": [],
+    "AddNoiseState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "rng_key"
+      }
+    ],
+    "ApplyEvery": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "grad_acc"
+      }
+    ],
+    "ApplyIfFiniteState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "notfinite_count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "last_finite"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "total_notfinite"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "ClipByGlobalNormState": [],
+    "ClipState": [],
+    "ConditionallyMaskState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "ConditionallyTransformState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step"
+      }
+    ],
+    "DifferentiallyPrivateAggregateState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "rng_key"
+      }
+    ],
+    "EmaState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "ema"
+      }
+    ],
+    "EmptyState": [],
+    "FactoredState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "v_row"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "v_col"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "v"
+      }
+    ],
+    "GradientTransformation": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "update"
+      }
+    ],
+    "GradientTransformationExtraArgs": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "update"
+      }
+    ],
+    "InjectHyperparamsState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparams"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "LookaheadParams": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "fast"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "slow"
+      }
+    ],
+    "LookaheadState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "fast_state"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "steps_since_sync"
+      }
+    ],
+    "MaskedState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "MaybeUpdateState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step"
+      }
+    ],
+    "MultiSteps": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "opt"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "every_k_schedule"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "use_grad_mean"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "should_skip_update_fn"
+      }
+    ],
+    "MultiStepsState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mini_step"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gradient_step"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_opt_state"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "acc_grads"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "skip_state"
+      }
+    ],
+    "MultiTransformState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_states"
+      }
+    ],
+    "NonNegativeParamsState": [],
+    "ScaleByAdaDeltaState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "e_g"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "e_x"
+      }
+    ],
+    "ScaleByAdamState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByAdanState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "m"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "v"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "n"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "g"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "t"
+      }
+    ],
+    "ScaleByAmsgradState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu_max"
+      }
+    ],
+    "ScaleByBacktrackingLinesearchState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "grad"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "info"
+      }
+    ],
+    "ScaleByBeliefState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByLBFGSState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "params"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "updates"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "diff_params_memory"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "diff_updates_memory"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weights_memory"
+      }
+    ],
+    "ScaleByLionState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      }
+    ],
+    "ScaleByNovogradState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByRStdDevState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByRmsState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByRpropState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step_sizes"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "prev_updates"
+      }
+    ],
+    "ScaleByRssState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "sum_of_squares"
+      }
+    ],
+    "ScaleBySM3State": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nu"
+      }
+    ],
+    "ScaleByScheduleState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      }
+    ],
+    "ScaleByTrustRatioState": [],
+    "ScaleByZoomLinesearchState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "grad"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "info"
+      }
+    ],
+    "ScaleState": [],
+    "Schedule": [],
+    "ShouldSkipUpdateFunction": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_KEYWORD",
+        "name": "kwargs"
+      }
+    ],
+    "TraceState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "trace"
+      }
+    ],
+    "TransformInitFn": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_KEYWORD",
+        "name": "kwargs"
+      }
+    ],
+    "TransformUpdateExtraArgsFn": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_KEYWORD",
+        "name": "kwargs"
+      }
+    ],
+    "TransformUpdateFn": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_KEYWORD",
+        "name": "kwargs"
+      }
+    ],
+    "ZeroNansState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "found_nan"
+      }
+    ],
+    "ZoomLinesearchInfo": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "num_linesearch_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decrease_error"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "curvature_error"
+      }
+    ],
+    "adabelief": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-16,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 1e-16,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "adadelta": [
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "rho"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay_mask"
+      }
+    ],
+    "adafactor": [
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 128,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_dim_size_to_factor"
+      },
+      {
+        "default": 0.8,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_offset"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "multiply_by_parameter_scale"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "clipping_threshold"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "dtype_momentum"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay_rate"
+      },
+      {
+        "default": 1e-30,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "factored"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay_mask"
+      }
+    ],
+    "adagrad": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_accumulator_value"
+      },
+      {
+        "default": 1e-07,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "adam": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "adamax": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "adamaxw": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      }
+    ],
+    "adamw": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      },
+      {
+        "default": 0.0001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "adan": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.98,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.92,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 0.99,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b3"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      }
+    ],
+    "adaptive_grad_clip": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "clipping"
+      },
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "add_decayed_weights": [
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      }
+    ],
+    "add_noise": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gamma"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "seed"
+      }
+    ],
+    "amsgrad": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      }
+    ],
+    "apply_every": [
+      {
+        "default": 1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "k"
+      }
+    ],
+    "apply_if_finite": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_consecutive_errors"
+      }
+    ],
+    "apply_updates": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "params"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "updates"
+      }
+    ],
+    "centralize": [],
+    "chain": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      }
+    ],
+    "clip": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_delta"
+      }
+    ],
+    "clip_by_block_rms": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "threshold"
+      }
+    ],
+    "clip_by_global_norm": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_norm"
+      }
+    ],
+    "conditionally_mask": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "should_transform_fn"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "forward_extra_args"
+      }
+    ],
+    "conditionally_transform": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "should_transform_fn"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "forward_extra_args"
+      }
+    ],
+    "constant_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "value"
+      }
+    ],
+    "convex_kl_divergence": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "cosine_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_steps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "alpha"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "exponent"
+      }
+    ],
+    "cosine_distance": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "cosine_onecycle_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": 0.3,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_start"
+      },
+      {
+        "default": 25.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "div_factor"
+      },
+      {
+        "default": 10000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "final_div_factor"
+      }
+    ],
+    "cosine_similarity": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "ctc_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logit_paddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "label_paddings"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "blank_id"
+      },
+      {
+        "default": -100000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_epsilon"
+      }
+    ],
+    "ctc_loss_with_forward_probs": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logit_paddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "label_paddings"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "blank_id"
+      },
+      {
+        "default": -100000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_epsilon"
+      }
+    ],
+    "differentially_private_aggregate": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "l2_norm_clip"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "noise_multiplier"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "seed"
+      }
+    ],
+    "dpsgd": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "l2_norm_clip"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "noise_multiplier"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "seed"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nesterov"
+      }
+    ],
+    "ema": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "debias"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "accumulator_dtype"
+      }
+    ],
+    "exponential_decay": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "staircase"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      }
+    ],
+    "flatten": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      }
+    ],
+    "fromage": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_norm"
+      }
+    ],
+    "global_norm": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "updates"
+      }
+    ],
+    "hinge_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictor_outputs"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "huber_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "delta"
+      }
+    ],
+    "identity": [],
+    "incremental_update": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "new_tensors"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "old_tensors"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step_size"
+      }
+    ],
+    "inject_hyperparams": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_factory"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "static_args"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparam_dtype"
+      }
+    ],
+    "join_schedules": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "schedules"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries"
+      }
+    ],
+    "keep_params_nonnegative": [],
+    "kl_divergence": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_predictions"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "l2_loss": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "lamb": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      }
+    ],
+    "lars": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay_mask"
+      },
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "trust_coefficient"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "trust_ratio_mask"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nesterov"
+      }
+    ],
+    "lbfgs": [
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 10,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "memory_size"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scale_init_precond"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "linesearch"
+      }
+    ],
+    "linear_onecycle_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": 0.3,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_start"
+      },
+      {
+        "default": 0.85,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_final"
+      },
+      {
+        "default": 25.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "div_factor"
+      },
+      {
+        "default": 10000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "final_div_factor"
+      }
+    ],
+    "linear_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      }
+    ],
+    "lion": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.99,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      },
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      }
+    ],
+    "log_cosh": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "predictions"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "targets"
+      }
+    ],
+    "lookahead": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "fast_optimizer"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "sync_period"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "slow_step_size"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "reset_state"
+      }
+    ],
+    "masked": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mask"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "mask_compatible_extra_args"
+      }
+    ],
+    "matrix_inverse_pth_root": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "matrix"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "p"
+      },
+      {
+        "default": 100,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "num_iters"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "ridge_epsilon"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "error_tolerance"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "precision"
+      }
+    ],
+    "maybe_update": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "should_update_fn"
+      }
+    ],
+    "multi_normal": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "loc"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "log_scale"
+      }
+    ],
+    "multi_transform": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transforms"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "param_labels"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "mask_compatible_extra_args"
+      }
+    ],
+    "noisy_sgd": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.01,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta"
+      },
+      {
+        "default": 0.55,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gamma"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "seed"
+      }
+    ],
+    "novograd": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.25,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      }
+    ],
+    "ntxent": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "embeddings"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": 0.07,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "temperature"
+      }
+    ],
+    "per_example_global_norm_clip": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "grads"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "l2_norm_clip"
+      }
+    ],
+    "per_example_layer_norm_clip": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "grads"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "global_l2_norm_clip"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "uniform"
+      }
+    ],
+    "periodic_update": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "new_tensors"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "old_tensors"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "update_period"
+      }
+    ],
+    "piecewise_constant_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries_and_scales"
+      }
+    ],
+    "piecewise_interpolate_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "interpolate_type"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries_and_scales"
+      }
+    ],
+    "polyak_sgd": [
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_learning_rate"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scaling"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "f_min"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "polynomial_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "power"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      }
+    ],
+    "power_iteration": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "matrix"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "v0"
+      },
+      {
+        "default": 100,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "num_iters"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "error_tolerance"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "precision"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "key"
+      }
+    ],
+    "radam": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 5.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "threshold"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "rmsprop": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_scale"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_in_sqrt"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "centered"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nesterov"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction"
+      }
+    ],
+    "rprop": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.5,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta_minus"
+      },
+      {
+        "default": 1.2,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta_plus"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_step_size"
+      },
+      {
+        "default": 50.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_step_size"
+      }
+    ],
+    "safe_increment": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      }
+    ],
+    "safe_int32_increment": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      }
+    ],
+    "safe_norm": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "x"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_norm"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "ord"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "keepdims"
+      }
+    ],
+    "safe_root_mean_squares": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "x"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_rms"
+      }
+    ],
+    "scale": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step_size"
+      }
+    ],
+    "scale_by_adadelta": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "rho"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_adam": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "scale_by_adamax": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_adan": [
+      {
+        "default": 0.98,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.92,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 0.99,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b3"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      }
+    ],
+    "scale_by_amsgrad": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      }
+    ],
+    "scale_by_backtracking_linesearch": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_backtracking_steps"
+      },
+      {
+        "default": 0.0001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "slope_rtol"
+      },
+      {
+        "default": 0.8,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decrease_factor"
+      },
+      {
+        "default": 1.5,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "increase_factor"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_learning_rate"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "atol"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "rtol"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "store_grad"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "verbose"
+      }
+    ],
+    "scale_by_belief": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-16,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 1e-16,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "scale_by_factored_rms": [
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "factored"
+      },
+      {
+        "default": 0.8,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step_offset"
+      },
+      {
+        "default": 128,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_dim_size_to_factor"
+      },
+      {
+        "default": 1e-30,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "epsilon"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate_fn"
+      }
+    ],
+    "scale_by_lbfgs": [
+      {
+        "default": 10,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "memory_size"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scale_init_precond"
+      }
+    ],
+    "scale_by_lion": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.99,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      }
+    ],
+    "scale_by_novograd": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.25,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "weight_decay"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "mu_dtype"
+      }
+    ],
+    "scale_by_param_block_norm": [
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_scale"
+      }
+    ],
+    "scale_by_param_block_rms": [
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_scale"
+      }
+    ],
+    "scale_by_polyak": [
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "f_min"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_learning_rate"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_radam": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 5.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "threshold"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "nesterov"
+      }
+    ],
+    "scale_by_rms": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_scale"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_in_sqrt"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction"
+      }
+    ],
+    "scale_by_rprop": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.5,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta_minus"
+      },
+      {
+        "default": 1.2,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eta_plus"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_step_size"
+      },
+      {
+        "default": 50.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_step_size"
+      }
+    ],
+    "scale_by_rss": [
+      {
+        "default": 0.1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_accumulator_value"
+      },
+      {
+        "default": 1e-07,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "step_size_fn"
+      }
+    ],
+    "scale_by_sign": [],
+    "scale_by_sm3": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_stddev": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay"
+      },
+      {
+        "default": 1e-08,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_scale"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_in_sqrt"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction"
+      }
+    ],
+    "scale_by_trust_ratio": [
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "min_norm"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "trust_coefficient"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "scale_by_yogi": [
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps_root"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_accumulator_value"
+      }
+    ],
+    "scale_by_zoom_linesearch": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_linesearch_steps"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_learning_rate"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "tol"
+      },
+      {
+        "default": 2.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "increase_factor"
+      },
+      {
+        "default": 0.0001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "slope_rtol"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "curv_rtol"
+      },
+      {
+        "default": 1e-06,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "approx_dec_rtol"
+      },
+      {
+        "default": 1e-05,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "stepsize_precision"
+      },
+      {
+        "default": "keep",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "initial_guess_strategy"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "verbose"
+      }
+    ],
+    "scale_gradient": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inputs"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "scale"
+      }
+    ],
+    "set_to_zero": [],
+    "sgd": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nesterov"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "accumulator_dtype"
+      }
+    ],
+    "sgdr_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "cosine_kwargs"
+      }
+    ],
+    "sigmoid_binary_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      }
+    ],
+    "sign_sgd": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      }
+    ],
+    "skip_large_updates": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "updates"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gradient_step"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "params"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "max_squared_norm"
+      }
+    ],
+    "skip_not_finite": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "updates"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "gradient_step"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "params"
+      }
+    ],
+    "sm3": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "momentum"
+      }
+    ],
+    "smooth_labels": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "alpha"
+      }
+    ],
+    "softmax_cross_entropy": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "softmax_cross_entropy_with_integer_labels": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "logits"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "labels"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "where"
+      }
+    ],
+    "stateless": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "f"
+      }
+    ],
+    "stateless_with_tree_map": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "f"
+      }
+    ],
+    "trace": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "nesterov"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "accumulator_dtype"
+      }
+    ],
+    "value_and_grad_from_state": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "value_fn"
+      }
+    ],
+    "warmup_cosine_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "warmup_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_steps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "exponent"
+      }
+    ],
+    "warmup_exponential_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "warmup_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "staircase"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      }
+    ],
+    "yogi": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "learning_rate"
+      },
+      {
+        "default": 0.9,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b1"
+      },
+      {
+        "default": 0.999,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "b2"
+      },
+      {
+        "default": 0.001,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "eps"
+      }
+    ],
+    "zero_nans": []
+  },
+  "schedules": {
+    "InjectHyperparamsState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparams"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "InjectStatefulHyperparamsState": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "count"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparams"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparams_states"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_state"
+      }
+    ],
+    "Schedule": [],
+    "StatefulSchedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_POSITIONAL",
+        "name": "args"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "VAR_KEYWORD",
+        "name": "kwargs"
+      }
+    ],
+    "WrappedSchedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "schedule_fn"
+      }
+    ],
+    "constant_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "value"
+      }
+    ],
+    "cosine_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_steps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "alpha"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "exponent"
+      }
+    ],
+    "cosine_onecycle_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": 0.3,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_start"
+      },
+      {
+        "default": 25.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "div_factor"
+      },
+      {
+        "default": 10000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "final_div_factor"
+      }
+    ],
+    "exponential_decay": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "staircase"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      }
+    ],
+    "inject_hyperparams": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_factory"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "static_args"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparam_dtype"
+      }
+    ],
+    "inject_stateful_hyperparams": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "inner_factory"
+      },
+      {
+        "default": "<non-primitive>",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "static_args"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "hyperparam_dtype"
+      }
+    ],
+    "join_schedules": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "schedules"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries"
+      }
+    ],
+    "linear_onecycle_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": 0.3,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_start"
+      },
+      {
+        "default": 0.85,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "pct_final"
+      },
+      {
+        "default": 25.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "div_factor"
+      },
+      {
+        "default": 10000.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "final_div_factor"
+      }
+    ],
+    "linear_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      }
+    ],
+    "piecewise_constant_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries_and_scales"
+      }
+    ],
+    "piecewise_interpolate_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "interpolate_type"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "boundaries_and_scales"
+      }
+    ],
+    "polynomial_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "power"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      }
+    ],
+    "sgdr_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "cosine_kwargs"
+      }
+    ],
+    "warmup_constant_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "warmup_steps"
+      }
+    ],
+    "warmup_cosine_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "warmup_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_steps"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "exponent"
+      }
+    ],
+    "warmup_exponential_decay_schedule": [
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "init_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "peak_value"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "warmup_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_steps"
+      },
+      {
+        "default": null,
+        "has_default": false,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "decay_rate"
+      },
+      {
+        "default": 0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "transition_begin"
+      },
+      {
+        "default": false,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "staircase"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "end_value"
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 """Schedule functions."""
 
 import math
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, Iterable
 
 from zero_jax import Array
 from typing import cast
@@ -228,7 +228,7 @@ def exponential_decay(
 
 
 def cosine_decay_schedule(
-    init_value: float, decay_steps: int, alpha: float = 0.0
+    init_value: float, decay_steps: int, alpha: float = 0.0, exponent: float = 1.0
 ) -> Callable[[int], float]:
     """Creates a cosine decay schedule.
 
@@ -269,6 +269,7 @@ def warmup_cosine_decay_schedule(
     warmup_steps: int,
     decay_steps: int,
     end_value: float = 0.0,
+    exponent: float = 1.0,
 ) -> Callable[[int], float]:
     """Creates a learning rate schedule with linear warmup followed by cosine decay.
 
@@ -590,6 +591,8 @@ def linear_onecycle_schedule(
 
 def inject_hyperparams(
     inner_factory: Optional[Callable[..., Any]],
+    static_args: Union[str, Iterable[str]] = (),
+    hyperparam_dtype: Optional[Any] = None,
 ) -> Optional[Callable[..., Any]]:
     """Creates a wrapper that injects hyperparameters into an optimizer factory.
 

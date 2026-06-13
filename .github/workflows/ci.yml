@@ -30,6 +30,7 @@ jobs:
         python -c "import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)" || pip install stdlib-list
         if [ -f "pyproject.toml" ]; then pip install -e . || true; fi
         if [ -f "requirements.txt" ]; then pip install -r requirements.txt || true; fi
+        if [ -f "requirements-test.txt" ]; then pip install -r requirements-test.txt || true; fi
 
     - name: Check 3rd-party imports
       run: python scripts/check_deps.py

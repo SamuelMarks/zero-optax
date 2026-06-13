@@ -4,7 +4,6 @@ from pathlib import Path
 
 # Allowlist of acceptable modules
 ALLOWED_MODULES = {
-    "numpy",
     "pydantic",
     "cdd_python",
     "ml_switcheroo_ir",

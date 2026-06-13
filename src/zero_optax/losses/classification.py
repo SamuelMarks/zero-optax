@@ -9,7 +9,7 @@ import zero_jax.numpy as jnp
 import zero_jax.nn as jnn
 
 
-def hinge_loss(scores: chex.Array, targets: chex.Array) -> chex.Array:
+def hinge_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.Array:
     """Compute the hinge loss.
 
     Args:
@@ -20,12 +20,14 @@ def hinge_loss(scores: chex.Array, targets: chex.Array) -> chex.Array:
         The hinge loss.
 
     """
-    p = jnp.asarray(scores)
+    p = jnp.asarray(predictor_outputs)
     t = jnp.asarray(targets)
     return cast(Array, jnp.maximum(0.0, 1.0 - p * t))
 
 
-def perceptron_loss(scores: chex.Numeric, targets: chex.Numeric) -> chex.Numeric:
+def perceptron_loss(
+    predictor_outputs: chex.Numeric, targets: chex.Numeric
+) -> chex.Numeric:
     """Compute the perceptron loss.
 
     Args:
@@ -36,7 +38,7 @@ def perceptron_loss(scores: chex.Numeric, targets: chex.Numeric) -> chex.Numeric
         The perceptron loss.
 
     """
-    p = jnp.asarray(scores)
+    p = jnp.asarray(predictor_outputs)
     t = jnp.asarray(targets)
     return cast(Array, jnp.maximum(0.0, -p * t))
 
