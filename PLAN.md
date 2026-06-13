@@ -1,9 +1,0 @@
-| Checkbox | Name | Signature | Docstring |
-|---|---|---|---|
-| [x] | `adagrad` | `(learning_rate: ScalarOrSchedule, initial_accumulator_value: float = 0.1, eps: float = 1e-07) -> GradientTransformation` | The Adagrad optimizer. |
-| [x] | `adam` | `(learning_rate: ScalarOrSchedule, b1: float = 0.9, b2: float = 0.999, eps: float = 1e-08, eps_root: float = 0.0, mu_dtype: Optional[Any] = None, *, nesterov: bool = False) -> GradientTransformation` | The Adam optimizer. |
-| [x] | `adamw` | `(learning_rate: ScalarOrSchedule, b1: float = 0.9, b2: float = 0.999, eps: float = 1e-08, eps_root: float = 0.0, mu_dtype: Optional[Any] = None, weight_decay: float = 0.0001, mask: Optional[Union[PyTree, Callable]] = None, *, nesterov: bool = False) -> GradientTransformation` | Adam with weight decay regularization. |
-| [x] | `lamb` | `(learning_rate: ScalarOrSchedule, b1: float = 0.9, b2: float = 0.999, eps: float = 1e-06, eps_root: float = 0.0, weight_decay: float = 0.0, mask: Optional[Union[PyTree, Callable]] = None) -> GradientTransformation` | The LAMB optimizer. |
-| [x] | `lars` | `(learning_rate: ScalarOrSchedule, weight_decay: float = 0.0, weight_decay_mask: Optional[Union[PyTree, Callable]] = True, trust_coefficient: float = 0.001, eps: float = 0.0, trust_ratio_mask: Optional[Union[PyTree, Callable]] = True, momentum: float = 0.9, nesterov: bool = False) -> GradientTransformation` | The LARS optimizer. |
-| [x] | `lion` | `(learning_rate: ScalarOrSchedule, b1: float = 0.9, b2: float = 0.99, mu_dtype: Optional[Any] = None, weight_decay: float = 0.001, mask: Optional[Union[PyTree, Callable]] = None) -> GradientTransformation` | The Lion optimizer. |
-| [x] | `sgd` | `(learning_rate: ScalarOrSchedule, momentum: Optional[float] = None, nesterov: bool = False, accumulator_dtype: Optional[Any] = None) -> GradientTransformation` | A canonical Stochastic Gradient Descent optimizer. |

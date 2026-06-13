@@ -4,7 +4,7 @@ from typing import Any, Callable
 
 from zero_jax import Array
 from typing import cast
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 
 
 def make_fenchel_young_loss(max_fun: Callable[..., Any]) -> Callable[..., Array]:

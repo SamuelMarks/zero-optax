@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
 
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 from zero_jax.tree_util import tree_map
 
 from zero_optax.base import GradientTransformation, PyTree, Params, Updates
@@ -93,7 +93,7 @@ def lars(
             update_norm = jnp.sqrt(jnp.sum(jnp.square(g)))
             trust_ratio = trust_coefficient * param_norm / (update_norm + eps)
 
-            zero_norm = jnp.bitwise_or(param_norm == 0.0, update_norm == 0.0)
+            zero_norm = (param_norm == 0.0) + (update_norm == 0.0) > 0
             safe_trust_ratio = jnp.where(
                 zero_norm, jnp.array(1.0, dtype=p.dtype), trust_ratio
             )

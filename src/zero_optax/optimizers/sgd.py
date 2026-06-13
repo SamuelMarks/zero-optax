@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
 
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 from zero_jax.tree_util import tree_map
 
 from zero_optax.base import GradientTransformation, OptState, Params, Updates
@@ -84,6 +84,7 @@ def sgd(
     """
 
     def init_fn(params: Params) -> SgdState:
+        trace_state: Union[TraceState, EmptyState]
         if momentum is not None:
             trace_state = TraceState(
                 trace=tree_map(
@@ -108,6 +109,7 @@ def sgd(
         updates: Updates, state: SgdState, params: Optional[Params] = None
     ) -> Tuple[Updates, SgdState]:
         # Momentum step
+        trace_state: Union[TraceState, EmptyState]
         if momentum is not None:
             trace_state = state.trace_state
             assert isinstance(trace_state, TraceState)
@@ -122,7 +124,7 @@ def sgd(
             else:
                 updates = new_trace
 
-            new_trace_state = TraceState(trace=new_trace)
+            new_trace_state: Union[TraceState, EmptyState] = TraceState(trace=new_trace)
         else:
             new_trace_state = EmptyState()
 

@@ -5,7 +5,7 @@ from typing import Any, Optional, Union, Tuple
 import chex
 from zero_jax import Array
 from typing import cast
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 import zero_jax.nn as jnn
 
 
@@ -232,7 +232,7 @@ def multiclass_hinge_loss(scores: Array, labels: Array) -> Array:
     t = jnp.asarray(labels)
     correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
     margins = jnp.maximum(0.0, 1.0 - correct_p + p)
-    mask = jnn.one_hot(t, p.shape[-1])
+    mask = jnp.expand_dims(t, -1) == jnp.arange(p.shape[-1])
     margins = jnp.where(mask, 0.0, margins)
     return cast(Array, jnp.sum(margins, axis=-1))
 
@@ -254,7 +254,7 @@ def multiclass_perceptron_loss(scores: Array, labels: Array) -> Array:
     t = jnp.asarray(labels)
     correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
     margins = jnp.maximum(0.0, -correct_p + p)
-    mask = jnn.one_hot(t, p.shape[-1])
+    mask = jnp.expand_dims(t, -1) == jnp.arange(p.shape[-1])
     margins = jnp.where(mask, 0.0, margins)
     return cast(Array, jnp.sum(margins, axis=-1))
 

@@ -9,7 +9,8 @@ def numeric_grad(fn, x, eps=1e-4):
     for i in range(len(flat_x)):
         orig = flat_x[i]
         flat_x[i] = orig + eps
-        val_plus = float(np.array(fn(flat_x.reshape(x_np.shape))))
+        res = fn(flat_x.reshape(x_np.shape))
+        val_plus = float(np.array(res))
         flat_x[i] = orig - eps
         val_minus = float(np.array(fn(flat_x.reshape(x_np.shape))))
         flat_x[i] = orig

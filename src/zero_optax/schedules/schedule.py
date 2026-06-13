@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from zero_jax import Array
 from typing import cast
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 
 
 def constant_schedule(value: float) -> Callable[[int], float]:

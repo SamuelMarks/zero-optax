@@ -2,7 +2,7 @@
 
 import chex
 from zero_jax import Array
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 from typing import cast
 
 

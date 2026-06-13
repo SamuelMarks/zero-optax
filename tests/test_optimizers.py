@@ -2,8 +2,7 @@
 
 from typing import Any, Dict, Tuple
 
-import ml_switcheroo.jnp as jnp
-import ml_switcheroo.ops as jops
+import zero_jax.numpy as jnp
 import numpy as np
 import pytest
 

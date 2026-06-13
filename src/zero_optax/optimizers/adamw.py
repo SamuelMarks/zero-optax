@@ -2,7 +2,7 @@
 
 from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
 
-import ml_switcheroo.jnp as jnp
+import zero_jax.numpy as jnp
 from zero_jax.tree_util import tree_map
 
 from zero_optax.base import GradientTransformation, PyTree, Params, Updates

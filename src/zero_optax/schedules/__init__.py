@@ -1,7 +1,5 @@
 """zero_optax schedules package."""
 
-import ml_switcheroo
-
 from zero_optax.schedules.schedule import (
     constant_schedule,
     join_schedules,

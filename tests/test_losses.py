@@ -219,9 +219,7 @@ def test_multiclass_margin_gradients() -> None:
     ngrad2 = numeric_grad(mp_fn, logits)
     assert not np.isnan(ngrad2).any()
 
-    import zero_jax.nn
-
-    labels = zero_jax.nn.one_hot(labels_int, 3)
+    labels = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
 
     def poly_fn(x):
         return jnp.sum(poly_loss_cross_entropy(x, labels))
