@@ -1,124 +1,137 @@
-"""AdamW optimizer."""
+"""AdamW optimizer (Adam with decoupled weight decay)."""
 
-from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
+from __future__ import annotations
 
-import zero_jax.numpy as jnp
-from zero_jax.tree_util import tree_map
+from typing import NamedTuple
 
-from zero_optax.base import GradientTransformation, PyTree, Params, Updates
-from zero_optax.optimizers.sgd import ScaleByScheduleState
-from zero_optax.optimizers.adam import ScaleByAdamState
+from zero_optax._tree import asarray
+from zero_optax._types import (
+    DTypeLike,
+    MaskOrFn,
+    Params,
+    ScalarOrSchedule,
+    Updates,
+)
+from zero_optax.base import (
+    GradientTransformation,
+    OptState,
+    ScaleByScheduleState,
+)
+from zero_optax.optimizers.adam import _as_adam_state
+from zero_optax.transform import (
+    AddDecayedWeightsState,
+    ScaleByAdamState,
+    add_decayed_weights,
+    scale_by_adam,
+    scale_by_learning_rate,
+)
 
 
 class AdamwState(NamedTuple):
-    """State for the AdamW optimizer."""
+    """State for the AdamW optimizer.
+
+    Attributes:
+        adam_state: State tracking step count and first/second moments.
+        scale_state: State tracking the schedule step count.
+    """
 
     adam_state: ScaleByAdamState
     scale_state: ScaleByScheduleState
 
 
 def adamw(
-    learning_rate: Union[float, jnp.ndarray, Callable[[jnp.ndarray], jnp.ndarray]],
+    learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
     b2: float = 0.999,
-    eps: float = 1e-08,
+    eps: float = 1e-8,
     eps_root: float = 0.0,
-    mu_dtype: Optional[Any] = None,
-    weight_decay: float = 0.0001,
-    mask: Optional[Union[PyTree, Callable[[PyTree], PyTree]]] = None,
+    mu_dtype: DTypeLike = None,
+    weight_decay: ScalarOrSchedule = 1e-4,
+    mask: MaskOrFn = None,
     *,
     nesterov: bool = False,
 ) -> GradientTransformation:
-    """Adam with weight decay regularization.
-
-    AdamW uses weight decay to regularize learning towards small weights, as
-    this leads to better generalization.
+    """Create the AdamW optimizer (Adam with decoupled weight decay).
 
     Args:
-      learning_rate: A global scaling factor.
-      b1: Exponential decay rate to track the first moment of past gradients.
-      b2: Exponential decay rate to track the second moment of past gradients.
-      eps: A small constant applied to denominator outside of the square root.
-      eps_root: A small constant applied to denominator inside the square root.
-      mu_dtype: Optional `dtype` to be used for the first order accumulator.
-      weight_decay: Strength of the weight decay regularization.
-      mask: A tree with same structure as (or a prefix of) the params PyTree,
-        or a Callable that returns such a pytree given the params/updates.
-        The leaves should be booleans, `True` for leaves/subtrees you want to
-        apply the weight decay to, and `False` for those you want to skip.
-      nesterov: Whether to use Nesterov momentum.
+        learning_rate: Global scaling factor or schedule callable.
+        b1: Exponential decay rate for the first moment estimate.
+        b2: Exponential decay rate for the second moment estimate.
+        eps: Small constant added outside the square root in the denominator.
+        eps_root: Small constant added inside the square root in the denominator.
+        mu_dtype: Optional data type for storing the first moment accumulator.
+        weight_decay: Strength of decoupled weight decay regularization.
+        mask: Optional boolean mask PyTree or callable `(Params) -> MaskTree` for weight decay.
+        nesterov: Whether to use Nesterov momentum for the first moment.
 
     Returns:
-      The corresponding :class:`optax.GradientTransformation`.
+        A `GradientTransformation` implementing AdamW.
     """
+    adam_tx = scale_by_adam(
+        b1=b1,
+        b2=b2,
+        eps=eps,
+        eps_root=eps_root,
+        mu_dtype=mu_dtype,
+        nesterov=nesterov,
+    )
+    wd_tx = add_decayed_weights(weight_decay=weight_decay, mask=mask)
+    lr_tx = scale_by_learning_rate(learning_rate)
 
     def init_fn(params: Params) -> AdamwState:
-        mu = tree_map(
-            lambda t: jnp.zeros_like(
-                t, dtype=mu_dtype if mu_dtype is not None else t.dtype
-            ),
-            params,
-        )
-        nu = tree_map(lambda t: jnp.zeros_like(t), params)
+        """Initialize the AdamW state for `params`.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `AdamwState`.
+        """
         return AdamwState(
-            adam_state=ScaleByAdamState(count=jnp.array(0), mu=mu, nu=nu),
-            scale_state=ScaleByScheduleState(count=jnp.array(0)),
+            adam_state=_as_adam_state(adam_tx.init(params)),
+            scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
     def update_fn(
-        updates: Updates, state: AdamwState, params: Optional[Params] = None
-    ) -> Tuple[Updates, AdamwState]:
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, AdamwState]:
+        """Update AdamW moments, apply decoupled weight decay, and scale by learning rate.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `AdamwState`.
+            params: Current model parameters PyTree (required).
+
+        Returns:
+            Tuple of `(transformed_updates, new_adamw_state)`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
         if params is None:
-            raise ValueError(
-                "You must pass `params` to the `update` function of `adamw`."
-            )
-
-        count_inc = state.adam_state.count + 1
-        mu = state.adam_state.mu
-        nu = state.adam_state.nu
-
-        new_mu = tree_map(lambda m, g: b1 * m + (1 - b1) * g, mu, updates)
-        new_nu = tree_map(lambda n, g: b2 * n + (1 - b2) * jnp.square(g), nu, updates)
-
-        b1_t = b1**count_inc
-        b2_t = b2**count_inc
-
-        # Determine mask
-        if callable(mask):
-            computed_mask = mask(params)
-        elif isinstance(mask, bool):
-            computed_mask = tree_map(lambda _: mask, params)
-        elif mask is not None:
-            computed_mask = mask
-        else:
-            computed_mask = tree_map(lambda _: True, params)
-
-        def _compute_update(m, n, g, p, msk):
-            if nesterov:
-                m_hat = (b1 * m + (1 - b1) * g) / (1 - b1_t)
-            else:
-                m_hat = m / (1 - b1_t)
-            n_hat = n / (1 - b2_t)
-            u = m_hat / (jnp.sqrt(n_hat + eps_root) + eps)
-            if msk:
-                u = u + weight_decay * p
-            return u
-
-        new_updates = tree_map(
-            _compute_update, new_mu, new_nu, updates, params, computed_mask
-        )
+            raise ValueError("`params` must be provided to `adamw` update.")
+        if not isinstance(state, AdamwState):
+            state = init_fn(params)
 
         count = state.scale_state.count
-        if callable(learning_rate):
-            step_lr = learning_rate(count)
-        else:
-            step_lr = learning_rate
-
-        new_updates = tree_map(lambda u: -step_lr * u, new_updates)
-
+        adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
+        decayed_updates, _ = wd_tx.update(
+            adam_updates, AddDecayedWeightsState(count=count), params
+        )
+        new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, AdamwState(
-            adam_state=ScaleByAdamState(count=count_inc, mu=new_mu, nu=new_nu),
+            adam_state=_as_adam_state(next_adam),
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
     return GradientTransformation(init_fn, update_fn)
+
+
+__all__ = [
+    "AdamwState",
+    "ScaleByAdamState",
+    "ScaleByScheduleState",
+    "adamw",
+]

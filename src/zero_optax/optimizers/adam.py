@@ -1,110 +1,135 @@
 """Adam optimizer."""
 
-from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
+from __future__ import annotations
 
-import zero_jax.numpy as jnp
-from zero_jax.tree_util import tree_map
+from typing import NamedTuple
 
-from zero_optax.base import GradientTransformation, OptState, Params, Updates
-from zero_optax.optimizers.sgd import ScaleByScheduleState
-
-
-class ScaleByAdamState(NamedTuple):
-    """State for the Adam algorithm."""
-
-    count: jnp.ndarray
-    mu: Updates
-    nu: Updates
+from zero_optax._tree import asarray
+from zero_optax._types import (
+    DTypeLike,
+    Params,
+    ScalarOrSchedule,
+    Updates,
+)
+from zero_optax.base import (
+    GradientTransformation,
+    OptState,
+    ScaleByScheduleState,
+)
+from zero_optax.transform import (
+    ScaleByAdamState,
+    scale_by_adam,
+    scale_by_learning_rate,
+)
 
 
 class AdamState(NamedTuple):
-    """State for the Adam optimizer."""
+    """State for the Adam optimizer.
+
+    Attributes:
+        adam_state: State tracking step count and first/second moments.
+        scale_state: State tracking the schedule step count.
+    """
 
     adam_state: ScaleByAdamState
     scale_state: ScaleByScheduleState
 
 
+def _as_adam_state(state: OptState) -> ScaleByAdamState:
+    """Narrow `OptState` from `scale_by_adam` to `ScaleByAdamState`.
+
+    Args:
+        state: State returned by `scale_by_adam` or `scale_by_yogi`.
+
+    Returns:
+        `ScaleByAdamState` instance.
+
+    Raises:
+        TypeError: If `state` is not a `ScaleByAdamState`.
+    """
+    if isinstance(state, ScaleByAdamState):
+        return state
+    raise TypeError(f"Expected ScaleByAdamState, got {type(state)!r}")
+
+
 def adam(
-    learning_rate: Union[float, jnp.ndarray, Callable[[jnp.ndarray], jnp.ndarray]],
+    learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
     b2: float = 0.999,
-    eps: float = 1e-08,
+    eps: float = 1e-8,
     eps_root: float = 0.0,
-    mu_dtype: Optional[Any] = None,
+    mu_dtype: DTypeLike = None,
     *,
     nesterov: bool = False,
 ) -> GradientTransformation:
-    """The Adam optimizer.
-
-    Adam is an SGD variant with gradient scaling adaptation. The scaling
-    used for each parameter is computed from estimates of first and second-order
-    moments of the gradients (using suitable exponential moving averages).
+    """Create the Adam optimizer.
 
     Args:
-      learning_rate: A global scaling factor, either fixed or evolving along
-        iterations with a scheduler, see :func:`optax.scale_by_learning_rate`.
-      b1: Exponential decay rate to track the first moment of past gradients.
-      b2: Exponential decay rate to track the second moment of past gradients.
-      eps: A small constant applied to denominator outside of the square root
-        (as in the Adam paper) to avoid dividing by zero when rescaling.
-      eps_root: A small constant applied to denominator inside the square root (as
-        in RMSProp), to avoid dividing by zero when rescaling. This is needed for
-        example when computing (meta-)gradients through Adam.
-      mu_dtype: Optional `dtype` to be used for the first order accumulator; if
-        `None` then the `dtype` is inferred from `params` and `updates`.
-      nesterov: Whether to use Nesterov momentum.
+        learning_rate: Global scaling factor or schedule callable.
+        b1: Exponential decay rate for the first moment estimate.
+        b2: Exponential decay rate for the second moment estimate.
+        eps: Small constant added outside the square root in the denominator.
+        eps_root: Small constant added inside the square root in the denominator.
+        mu_dtype: Optional data type for storing the first moment accumulator.
+        nesterov: Whether to use Nesterov momentum for the first moment.
 
     Returns:
-      The corresponding :class:`optax.GradientTransformation`.
+        A `GradientTransformation` implementing Adam.
     """
+    adam_tx = scale_by_adam(
+        b1=b1,
+        b2=b2,
+        eps=eps,
+        eps_root=eps_root,
+        mu_dtype=mu_dtype,
+        nesterov=nesterov,
+    )
+    lr_tx = scale_by_learning_rate(learning_rate)
 
     def init_fn(params: Params) -> AdamState:
-        mu = tree_map(
-            lambda t: jnp.zeros_like(
-                t, dtype=mu_dtype if mu_dtype is not None else t.dtype
-            ),
-            params,
-        )
-        nu = tree_map(lambda t: jnp.zeros_like(t), params)
+        """Initialize the Adam state for `params`.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `AdamState`.
+        """
         return AdamState(
-            adam_state=ScaleByAdamState(count=jnp.array(0), mu=mu, nu=nu),
-            scale_state=ScaleByScheduleState(count=jnp.array(0)),
+            adam_state=_as_adam_state(adam_tx.init(params)),
+            scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
     def update_fn(
-        updates: Updates, state: AdamState, params: Optional[Params] = None
-    ) -> Tuple[Updates, AdamState]:
-        count_inc = state.adam_state.count + 1
-        mu = state.adam_state.mu
-        nu = state.adam_state.nu
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, AdamState]:
+        """Update Adam moments and compute bias-corrected parameter updates.
 
-        new_mu = tree_map(lambda m, g: b1 * m + (1 - b1) * g, mu, updates)
-        new_nu = tree_map(lambda n, g: b2 * n + (1 - b2) * jnp.square(g), nu, updates)
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `AdamState`.
+            params: Optional model parameters PyTree.
 
-        b1_t = b1**count_inc
-        b2_t = b2**count_inc
-
-        def _compute_update(m, n, g):
-            if nesterov:
-                m_hat = (b1 * m + (1 - b1) * g) / (1 - b1_t)
-            else:
-                m_hat = m / (1 - b1_t)
-            n_hat = n / (1 - b2_t)
-            return m_hat / (jnp.sqrt(n_hat + eps_root) + eps)
-
-        new_updates = tree_map(_compute_update, new_mu, new_nu, updates)
-
-        count = state.scale_state.count
-        if callable(learning_rate):
-            step_lr = learning_rate(count)
-        else:
-            step_lr = learning_rate
-
-        new_updates = tree_map(lambda u: -step_lr * u, new_updates)
-
+        Returns:
+            Tuple of `(transformed_updates, new_adam_state)`.
+        """
+        if not isinstance(state, AdamState):
+            state = init_fn(updates)
+        adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
+        new_updates, _ = lr_tx.update(adam_updates, state.scale_state, params)
         return new_updates, AdamState(
-            adam_state=ScaleByAdamState(count=count_inc, mu=new_mu, nu=new_nu),
-            scale_state=ScaleByScheduleState(count=count + 1),
+            adam_state=_as_adam_state(next_adam),
+            scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
     return GradientTransformation(init_fn, update_fn)
+
+
+__all__ = [
+    "AdamState",
+    "ScaleByAdamState",
+    "ScaleByScheduleState",
+    "adam",
+]

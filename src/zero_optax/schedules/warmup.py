@@ -1,5 +1,7 @@
 """Learning rate schedules with initial warmup phases."""
 
+from __future__ import annotations
+
 from zero_optax.schedules.schedule import (
     warmup_constant_schedule,
     warmup_cosine_decay_schedule,

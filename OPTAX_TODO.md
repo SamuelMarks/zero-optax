@@ -3,4 +3,4 @@
 Overall Compliance: 100.0%
 
 Breakdown by Module:
-  - optax: 100.0% (68/68)
+  - optax: 100.0% (84/84)

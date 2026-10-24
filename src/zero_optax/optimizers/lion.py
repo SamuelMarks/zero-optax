@@ -1,108 +1,139 @@
-"""Lion optimizer."""
+"""Lion (EvoLved Sign Momentum) optimizer."""
 
-from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
+from __future__ import annotations
 
-import zero_jax.numpy as jnp
-from zero_jax.tree_util import tree_map
+from typing import NamedTuple
 
-from zero_optax.base import GradientTransformation, PyTree, Params, Updates
-from zero_optax.optimizers.sgd import ScaleByScheduleState
-
-
-class ScaleByLionState(NamedTuple):
-    """State for the Lion algorithm."""
-
-    mu: Updates
+from zero_optax._tree import asarray
+from zero_optax._types import (
+    DTypeLike,
+    MaskOrFn,
+    Params,
+    ScalarOrSchedule,
+    Updates,
+)
+from zero_optax.base import (
+    GradientTransformation,
+    OptState,
+    ScaleByScheduleState,
+)
+from zero_optax.transform import (
+    AddDecayedWeightsState,
+    ScaleByLionState,
+    add_decayed_weights,
+    scale_by_learning_rate,
+    scale_by_lion,
+)
 
 
 class LionState(NamedTuple):
-    """State for the Lion optimizer."""
+    """State for the Lion optimizer.
+
+    Attributes:
+        lion_state: State holding step count and momentum trace.
+        scale_state: State tracking the schedule step count.
+    """
 
     lion_state: ScaleByLionState
     scale_state: ScaleByScheduleState
 
 
-def lion(
-    learning_rate: Union[float, jnp.ndarray, Callable[[jnp.ndarray], jnp.ndarray]],
-    b1: float = 0.9,
-    b2: float = 0.99,
-    mu_dtype: Optional[Any] = None,
-    weight_decay: float = 0.001,
-    mask: Optional[Union[PyTree, Callable[[PyTree], PyTree]]] = None,
-) -> GradientTransformation:
-    """The Lion optimizer.
-
-    Lion is discovered by symbolic program search. Unlike most adaptive optimizers
-    such as AdamW, Lion only tracks momentum, making it more memory-efficient.
+def _as_lion_state(state: OptState) -> ScaleByLionState:
+    """Narrow `OptState` from `scale_by_lion` to `ScaleByLionState`.
 
     Args:
-      learning_rate: A global scaling factor.
-      b1: Rate to combine the momentum and the current gradient.
-      b2: Exponential decay rate to track the momentum of past gradients.
-      mu_dtype: Optional `dtype` to be used for the first order accumulator.
-      weight_decay: Strength of the weight decay regularization.
-      mask: A tree with same structure as (or a prefix of) the params PyTree, or a
-        Callable that returns such a pytree given the params/updates.
+        state: State returned by `scale_by_lion`.
 
     Returns:
-      The corresponding :class:`optax.GradientTransformation`.
+        `ScaleByLionState` instance.
+
+    Raises:
+        TypeError: If `state` is not a `ScaleByLionState`.
     """
+    if isinstance(state, ScaleByLionState):
+        return state
+    raise TypeError(f"Expected ScaleByLionState, got {type(state)!r}")
+
+
+def lion(
+    learning_rate: ScalarOrSchedule,
+    b1: float = 0.9,
+    b2: float = 0.99,
+    mu_dtype: DTypeLike = None,
+    weight_decay: ScalarOrSchedule = 1e-3,
+    mask: MaskOrFn = None,
+) -> GradientTransformation:
+    """Create the Lion (EvoLved Sign Momentum) optimizer.
+
+    Args:
+        learning_rate: Global scaling factor or schedule callable.
+        b1: Interpolation rate for computing the sign update direction.
+        b2: Exponential decay rate for updating the momentum trace.
+        mu_dtype: Optional data type for storing the momentum accumulator.
+        weight_decay: Strength of decoupled weight decay regularization.
+        mask: Optional boolean mask PyTree or callable `(Params) -> MaskTree` for weight decay.
+
+    Returns:
+        A `GradientTransformation` implementing Lion.
+    """
+    lion_tx = scale_by_lion(b1=b1, b2=b2, mu_dtype=mu_dtype)
+    wd_tx = add_decayed_weights(weight_decay=weight_decay, mask=mask)
+    lr_tx = scale_by_learning_rate(learning_rate)
 
     def init_fn(params: Params) -> LionState:
-        mu = tree_map(
-            lambda t: jnp.zeros_like(
-                t, dtype=mu_dtype if mu_dtype is not None else t.dtype
-            ),
-            params,
-        )
+        """Initialize the Lion state for `params`.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `LionState`.
+        """
         return LionState(
-            lion_state=ScaleByLionState(mu=mu),
-            scale_state=ScaleByScheduleState(count=jnp.array(0)),
+            lion_state=_as_lion_state(lion_tx.init(params)),
+            scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
     def update_fn(
-        updates: Updates, state: LionState, params: Optional[Params] = None
-    ) -> Tuple[Updates, LionState]:
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, LionState]:
+        """Compute Lion sign update, apply decoupled weight decay, and update momentum.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `LionState`.
+            params: Current model parameters PyTree (required when weight decay is active).
+
+        Returns:
+            Tuple of `(transformed_updates, new_lion_state)`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
         if params is None:
-            raise ValueError(
-                "You must pass `params` to the `update` function of `lion`."
-            )
-
-        mu = state.lion_state.mu
-
-        # Determine mask
-        if callable(mask):
-            computed_mask = mask(params)
-        elif isinstance(mask, bool):
-            computed_mask = tree_map(lambda _: mask, params)
-        elif mask is not None:
-            computed_mask = mask
-        else:
-            computed_mask = tree_map(lambda _: True, params)
-
-        # Since tree_map doesn't easily return multiple trees, do two passes
-        new_updates = tree_map(
-            lambda m, g, p, msk: (
-                jnp.sign(b1 * m + (1 - b1) * g) + (weight_decay * p if msk else 0.0)
-            ),
-            mu,
-            updates,
-            params,
-            computed_mask,
-        )
-        new_mu = tree_map(lambda m, g: b2 * m + (1 - b2) * g, mu, updates)
+            raise ValueError("`params` must be provided to `lion` update.")
+        if not isinstance(state, LionState):
+            state = init_fn(params)
 
         count = state.scale_state.count
-        if callable(learning_rate):
-            step_lr = learning_rate(count)
-        else:
-            step_lr = learning_rate
-
-        new_updates = tree_map(lambda u: -step_lr * u, new_updates)
-
+        sign_updates, next_lion = lion_tx.update(updates, state.lion_state, params)
+        decayed_updates, _ = wd_tx.update(
+            sign_updates, AddDecayedWeightsState(count=count), params
+        )
+        new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, LionState(
-            lion_state=ScaleByLionState(mu=new_mu),
+            lion_state=_as_lion_state(next_lion),
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
     return GradientTransformation(init_fn, update_fn)
+
+
+__all__ = [
+    "LionState",
+    "ScaleByLionState",
+    "ScaleByScheduleState",
+    "lion",
+]

@@ -48,13 +48,18 @@ These require careful handling of numerical stability (e.g., `logsumexp` tricks)
   - [x] `softmax_cross_entropy`: Add equivalence tests for multi-dimensional axes and masks.
   - [x] `softmax_cross_entropy_with_integer_labels`: Implement integer-to-one-hot conversion and dispatch.
   - [x] `softmax_cross_entropy_with_integer_labels`: Add numerical and gradient equivalence tests.
-- [x] **Multiclass Margin - [ ] **Multiclass Margin & Poly Losses** Poly Losses**
+- [x] **Multiclass Margin & Poly Losses**
   - [x] `multiclass_hinge_loss`: Implement multi-class margin logic.
   - [x] `multiclass_hinge_loss`: Add numerical and gradient equivalence tests.
   - [x] `multiclass_perceptron_loss`: Implement multi-class perceptron logic.
   - [x] `multiclass_perceptron_loss`: Add numerical and gradient equivalence tests.
   - [x] `poly_loss_cross_entropy`: Implement Taylor expansion adjustment on top of cross entropy.
   - [x] `poly_loss_cross_entropy`: Add numerical and gradient equivalence tests.
+- [x] **Dice & Metric Losses**
+  - [x] `binary_dice_loss`: Implement binary Sørensen-Dice loss.
+  - [x] `dice_loss`: Implement multiclass Tversky/Dice loss.
+  - [x] `multiclass_generalized_dice_loss`: Implement generalized Dice loss with inverse volume weighting.
+  - [x] `triplet_margin_loss`: Implement triplet margin metric loss.
 
 ## Phase 4: Advanced Losses (Heavy `zero-jax` Dependency)
 
@@ -65,7 +70,7 @@ These losses require complex algorithmic primitives like dynamic programming (`j
   - [x] `ctc_loss_with_forward_probs`: Test against varying sequence lengths and padding masks.
   - [x] `ctc_loss`: Wrap `ctc_loss_with_forward_probs` and discard probabilities.
   - [x] `ctc_loss`: Add gradient equivalence tests (CTC gradients are notoriously tricky; exact matching is required).
-- [x] **Sparsemax - [ ] **Sparsemax & Ranking** Ranking**
+- [x] **Sparsemax & Ranking**
   - [x] `sparsemax_loss`: Implement the sparsemax projection algorithm (sorting/bisection logic using `zero-jax`).
   - [x] `sparsemax_loss`: Add numerical and gradient equivalence tests.
   - [x] `multiclass_sparsemax_loss`: Implement multi-class variant.
@@ -127,8 +132,22 @@ These are complex transformations that interact directly with the optimizer stat
   - [x] `inject_stateful_hyperparams`: Implement stateful tracking of injected parameters.
   - [x] `inject_stateful_hyperparams`: Write tests verifying state propagation.
 
+- [x] **Optimizers**
+  - [x] `adabelief`: Implement AdaBelief optimizer.
+  - [x] `adagrad`: Implement Adagrad optimizer.
+  - [x] `adam`: Implement Adam optimizer.
+  - [x] `adamw`: Implement AdamW optimizer.
+  - [x] `fromage`: Implement Fromage optimizer.
+  - [x] `lamb`: Implement LAMB optimizer.
+  - [x] `lars`: Implement LARS optimizer.
+  - [x] `lion`: Implement Lion optimizer.
+  - [x] `novograd`: Implement NovoGrad optimizer.
+  - [x] `rmsprop`: Implement RMSProp optimizer.
+  - [x] `sgd`: Implement SGD optimizer.
+  - [x] `yogi`: Implement Yogi optimizer.
+
 ## Phase 8: Final Validation
 
-- [x] Run full `zero-optax` test suite with `zero-jax` backend enabled.
+- [x] Run full `zero-optax` test suite with `ml-switcheroo-compiler` backend enabled.
 - [x] Verify 100% test coverage is maintained.
-- [x] Run `ml_framework_snapshots` to guarantee no structural regressions occurred during semantic implementation.
+- [x] Run `ml_ecosystem_snapshots` to guarantee no structural regressions occurred during semantic implementation.

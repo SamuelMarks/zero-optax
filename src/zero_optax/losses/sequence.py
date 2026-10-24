@@ -1,74 +1,221 @@
-"""Sequence losses."""
+"""Connectionist Temporal Classification (CTC) sequence loss functions."""
 
-from typing import Any, Tuple
+from __future__ import annotations
 
-from zero_jax import Array
-from typing import cast
-import zero_jax.numpy as jnp
+from zero_optax._tree import (
+    NEG_INF,
+    abs_tensor,
+    arange,
+    asarray,
+    exp,
+    expand_dims,
+    log,
+    log1p,
+    maximum,
+    ones,
+    reduce_max,
+    reduce_sum,
+    squeeze,
+    take_along_axis,
+    where,
+)
+from zero_optax._types import ArrayLike, Tensor
 
 
-def ctc_loss(
-    logits: Array,
-    logit_paddings: Array,
-    labels: Array,
-    label_paddings: Array,
-    blank_id: int = 0,
-    log_epsilon: float = -1e5,
-) -> Array:
-    """Computes the Connectionist Temporal Classification (CTC) loss.
-
-    CTC loss is used for sequence-to-sequence tasks where the timing of the alignment
-    between the input sequence and the target sequence is unknown (e.g., speech recognition).
+def _logaddexp(a: Tensor, b: Tensor) -> Tensor:
+    """Compute element-wise numerically stable `log(exp(a) + exp(b))` on Tensors.
 
     Args:
-        logits: Unnormalized log probabilities for each class at each time step.
-        logit_paddings: Binary array indicating padding for the input logits (1 for padding, 0 for valid).
-        labels: Integer IDs for the target sequence.
-        label_paddings: Binary array indicating padding for the target labels.
-        blank_id: The class index corresponding to the special 'blank' token used in CTC.
-        log_epsilon: A small value used to prevent numerical underflow during log operations.
+        a: First log-probability Tensor.
+        b: Second log-probability Tensor.
 
     Returns:
-        An array containing the scalar CTC loss per sequence in the batch.
+        Combined log-probability Tensor.
     """
-    l = jnp.asarray(logits)
-    return cast(Array, jnp.zeros(l.shape[0]))
+    both_neg_inf = (a == NEG_INF) & (b == NEG_INF)
+    m = maximum(a, b)
+    m_safe = where(both_neg_inf, 0.0, m)
+    diff = where(both_neg_inf, 0.0, -abs_tensor(a - b))
+    res = m_safe + log1p(exp(diff))
+    return where(both_neg_inf, NEG_INF, res)
 
 
 def ctc_loss_with_forward_probs(
-    logits: Array,
-    logit_paddings: Array,
-    labels: Array,
-    label_paddings: Array,
+    logits: ArrayLike,
+    logit_paddings: ArrayLike,
+    labels: ArrayLike,
+    label_paddings: ArrayLike,
+    *,
     blank_id: int = 0,
-    log_epsilon: float = -1e5,
-) -> Tuple[Array, Array, Array, Array]:
-    """Computes the CTC loss and returns the internal forward/backward probabilities.
-
-    In addition to the CTC loss, this function also exposes the alpha (forward) and
-    beta (backward) probabilities computed during the forward-backward algorithm. These
-    can be useful for tasks like forced alignment or debugging.
+    log_epsilon: float | ArrayLike = -100000.0,
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Compute CTC loss and forward log-alpha blank and non-blank probabilities.
 
     Args:
-        logits: Unnormalized log probabilities for each class at each time step.
-        logit_paddings: Binary array indicating padding for the input logits.
-        labels: Integer IDs for the target sequence.
-        label_paddings: Binary array indicating padding for the target labels.
-        blank_id: The class index corresponding to the 'blank' token.
-        log_epsilon: Small value used to prevent numerical underflow in log space.
+        logits: 3D array of shape `(B, T, K)` containing unnormalized class log-probabilities.
+        logit_paddings: 2D array of shape `(B, T)` with `1.0` indicating padded frames and `0.0` valid frames.
+        labels: 2D integer array of shape `(B, N)` containing ground-truth label indices.
+        label_paddings: 2D array of shape `(B, N)` with `1.0` indicating padded labels and `0.0` valid labels.
+        blank_id: Class index reserved for the CTC blank token.
+        log_epsilon: Numerically stable log-space approximation of `log(0)`.
 
     Returns:
-        A tuple containing:
-            - The CTC loss array per sequence.
-            - The alpha (forward) probability matrix.
-            - The beta (backward) probability matrix.
-            - Gamma, the marginal probabilities combining alpha and beta.
+        Tuple `(per_seq_loss, logalpha_blank, logalpha_nonblank)` where `per_seq_loss`
+        has shape `(B,)` and `logalpha_blank` / `logalpha_nonblank` have shapes
+        `(T, B, N + 1)` and `(T, B, N)` respectively.
     """
-    l = jnp.asarray(logits)
-    B = l.shape[0]
-    return (
-        cast(Array, jnp.zeros(B)),
-        cast(Array, jnp.zeros(B)),
-        cast(Array, jnp.zeros(B)),
-        cast(Array, jnp.zeros(B)),
+    logits_t = asarray(logits)
+    logit_pad_t = asarray(logit_paddings)
+    labels_t = asarray(labels)
+    label_pad_t = asarray(label_paddings)
+    log_eps_t = asarray(log_epsilon)
+
+    batch_size, max_time, _ = logits_t.shape
+    _, max_label_len = labels_t.shape
+
+    c = reduce_max(logits_t, axis=-1, keepdims=True)
+    log_probs = (
+        logits_t - c - log(reduce_sum(exp(logits_t - c), axis=-1, keepdims=True))
     )
+
+    n_plus_1_idx = expand_dims(arange(max_label_len + 1), 0)
+    phi_prev = where(
+        n_plus_1_idx == 0,
+        0.0,
+        ones((batch_size, max_label_len + 1)) * log_eps_t,
+    )
+    emit_prev = ones((batch_size, max_label_len)) * log_eps_t
+
+    if max_label_len > 1:
+        same_adj = asarray(labels_t[:, :-1] == labels_t[:, 1:])
+        repeat_cols = [
+            where(same_adj[:, n : n + 1], 1.0, 0.0) for n in range(max_label_len - 1)
+        ] + [ones((batch_size, 1)) * 0.0]
+        repeat_flags = asarray(
+            [
+                [float(repeat_cols[n][b, 0].item()) for n in range(max_label_len)]
+                for b in range(batch_size)
+            ]
+        )
+    else:
+        repeat_flags = ones((batch_size, max_label_len)) * 0.0
+
+    phi_steps: list[Tensor] = []
+    emit_steps: list[Tensor] = []
+
+    for t in range(max_time):
+        pad_t = logit_pad_t[:, t : t + 1]
+        lp_frame = log_probs[:, t, :]
+        lp_blank = lp_frame[:, blank_id : blank_id + 1]
+        lp_emit = take_along_axis(lp_frame, labels_t, axis=-1)
+
+        prev_phi_orig = phi_prev
+        prev_phi_tail = _logaddexp(
+            prev_phi_orig[:, 1:],
+            emit_prev + log_eps_t * repeat_flags,
+        )
+        prev_phi_prefix = where(
+            n_plus_1_idx[:, :-1] == 0,
+            prev_phi_orig[:, :1],
+            prev_phi_tail[:, :-1] if max_label_len > 1 else prev_phi_orig[:, :1],
+        )
+        if max_label_len > 1:
+            prefix_cols = [prev_phi_orig[:, 0]] + [
+                prev_phi_tail[:, n] for n in range(max_label_len - 1)
+            ]
+            prev_phi_prefix = asarray(
+                [
+                    [prefix_cols[n][b] for n in range(max_label_len)]
+                    for b in range(batch_size)
+                ]
+            )
+
+        next_emit = _logaddexp(prev_phi_prefix + lp_emit, emit_prev + lp_emit)
+
+        next_phi_0 = prev_phi_orig[:, :1] + lp_blank
+        next_phi_tail = _logaddexp(
+            prev_phi_tail + lp_blank,
+            emit_prev + lp_blank + log_eps_t * (1.0 - repeat_flags),
+        )
+        phi_cols = [next_phi_0[:, 0]] + [
+            next_phi_tail[:, n] for n in range(max_label_len)
+        ]
+        next_phi = asarray(
+            [
+                [phi_cols[n][b] for n in range(max_label_len + 1)]
+                for b in range(batch_size)
+            ]
+        )
+
+        emit_prev = pad_t * emit_prev + (1.0 - pad_t) * next_emit
+        phi_prev = pad_t * prev_phi_orig + (1.0 - pad_t) * next_phi
+        phi_steps.append(phi_prev)
+        emit_steps.append(emit_prev)
+
+    if max_time > 0:
+        last_phi_0 = phi_steps[-1][:, :1]
+        last_phi_tail = _logaddexp(phi_steps[-1][:, 1:], emit_steps[-1])
+        last_cols = [last_phi_0[:, 0]] + [
+            last_phi_tail[:, n] for n in range(max_label_len)
+        ]
+        last_phi = asarray(
+            [
+                [last_cols[n][b] for n in range(max_label_len + 1)]
+                for b in range(batch_size)
+            ]
+        )
+        phi_steps[-1] = last_phi
+    else:
+        last_phi = phi_prev
+
+    valid_label_counts = reduce_sum(1.0 - label_pad_t, axis=-1, keepdims=True)
+    target_indices = asarray(valid_label_counts, dtype=int)
+    per_seq_loglike = squeeze(
+        take_along_axis(last_phi, target_indices, axis=-1), axis=-1
+    )
+    per_seq_loss = -per_seq_loglike
+
+    return (
+        per_seq_loss,
+        asarray(phi_steps),
+        asarray(emit_steps),
+    )
+
+
+def ctc_loss(
+    logits: ArrayLike,
+    logit_paddings: ArrayLike,
+    labels: ArrayLike,
+    label_paddings: ArrayLike,
+    *,
+    blank_id: int = 0,
+    log_epsilon: float | ArrayLike = -100000.0,
+) -> Tensor:
+    """Compute Connectionist Temporal Classification (CTC) loss per sequence.
+
+    Args:
+        logits: 3D array of shape `(B, T, K)` containing unnormalized class log-probabilities.
+        logit_paddings: 2D array of shape `(B, T)` with `1.0` indicating padded frames.
+        labels: 2D integer array of shape `(B, N)` containing ground-truth label indices.
+        label_paddings: 2D array of shape `(B, N)` with `1.0` indicating padded labels.
+        blank_id: Class index reserved for the CTC blank token.
+        log_epsilon: Numerically stable log-space approximation of `log(0)`.
+
+    Returns:
+        1D Tensor of shape `(B,)` containing the CTC loss for each sequence in the batch.
+    """
+    per_seq_loss, _, _ = ctc_loss_with_forward_probs(
+        logits,
+        logit_paddings,
+        labels,
+        label_paddings,
+        blank_id=blank_id,
+        log_epsilon=log_epsilon,
+    )
+    return per_seq_loss
+
+
+__all__ = [
+    "ctc_loss",
+    "ctc_loss_with_forward_probs",
+]

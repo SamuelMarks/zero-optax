@@ -4,36 +4,87 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zero_optax"
-version = "0.2.4"
+version = "0.2.8"
 description = "A clean implementation of optax API"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0 OR MIT" }
+authors = [{ name = "Samuel Marks", email = "samuelmarks@gmail.com" }]
 dynamic = ["dependencies"]
 
-[tool.hatch.metadata.hooks.requirements_txt]
-files = ["requirements.txt"]
-
 [project.optional-dependencies]
-dev = [
+test = [
     "pytest",
     "pytest-cov",
     "mypy",
+    "ruff",
+    "interrogate",
+    "chex",
+    "jax",
+    "jax[cuda12] ; sys_platform == 'linux'",
+    "jaxlib",
+    "absl-py",
+    "numpy",
+    "optax",
 ]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
-[tool.pytest.ini_options]
-pythonpath = "src"
-addopts = "--cov=zero_optax --cov-fail-under=80"
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ["requirements.txt"]
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "--cov=zero_optax --cov=scripts --cov-branch --cov-report=term-missing --cov-fail-under=100"
+
+[tool.ruff]
+target-version = "py310"
 
 [tool.ruff.lint]
-ignore = ['E402', 'F401', 'F841', 'E741']
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "D", "RUF"]
+ignore = ["E501", "B905", "UP007"]
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.mypy]
+python_version = "3.10"
+strict = true
+follow_imports = "silent"
 ignore_missing_imports = true
+disallow_any_explicit = true
+disallow_any_generics = true
+disallow_any_decorated = true
+disallow_subclassing_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+disable_error_code = ["assignment"]
 
 [tool.coverage.run]
-source = ["src/zero_optax"]
+branch = true
+source = ["src/zero_optax", "scripts"]
 omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_lines = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    '\.\.\.',
+]
+
+[tool.interrogate]
+fail-under = 100
+ignore-init-method = false
+ignore-init-module = false
+ignore-magic = false
+ignore-private = false
+ignore-nested-functions = false
+ignore-property-decorators = false
+verbose = 2

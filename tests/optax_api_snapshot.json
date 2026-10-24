@@ -664,14 +664,6 @@
         "name": "step"
       }
     ],
-    "DifferentiallyPrivateAggregateState": [
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "rng_key"
-      }
-    ],
     "EmaState": [
       {
         "default": null,
@@ -2078,64 +2070,6 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "log_epsilon"
-      }
-    ],
-    "differentially_private_aggregate": [
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "l2_norm_clip"
-      },
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "noise_multiplier"
-      },
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "seed"
-      }
-    ],
-    "dpsgd": [
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "learning_rate"
-      },
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "l2_norm_clip"
-      },
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "noise_multiplier"
-      },
-      {
-        "default": null,
-        "has_default": false,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "seed"
-      },
-      {
-        "default": null,
-        "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "momentum"
-      },
-      {
-        "default": false,
-        "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "nesterov"
       }
     ],
     "ema": [

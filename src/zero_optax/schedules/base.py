@@ -1,23 +1,25 @@
 """Base learning rate schedules."""
 
+from __future__ import annotations
+
 from zero_optax.schedules.schedule import (
     constant_schedule,
-    linear_schedule,
-    polynomial_schedule,
-    exponential_decay,
     cosine_decay_schedule,
+    exponential_decay,
+    join_schedules,
+    linear_schedule,
     piecewise_constant_schedule,
     piecewise_interpolate_schedule,
-    join_schedules,
+    polynomial_schedule,
 )
 
 __all__ = [
     "constant_schedule",
-    "linear_schedule",
-    "polynomial_schedule",
-    "exponential_decay",
     "cosine_decay_schedule",
+    "exponential_decay",
+    "join_schedules",
+    "linear_schedule",
     "piecewise_constant_schedule",
     "piecewise_interpolate_schedule",
-    "join_schedules",
+    "polynomial_schedule",
 ]

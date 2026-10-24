@@ -1,331 +1,461 @@
-"""Classification losses."""
+"""Classification and divergence loss functions."""
 
-from typing import Any, Optional, Union, Tuple
+from __future__ import annotations
 
-import chex
-from zero_jax import Array
-from typing import cast
-import zero_jax.numpy as jnp
-import zero_jax.nn as jnn
+from zero_optax._tree import (
+    INF,
+    NEG_INF,
+    abs_tensor,
+    arange,
+    asarray,
+    exp,
+    expand_dims,
+    log,
+    log1p,
+    maximum,
+    reduce_max,
+    reduce_sum,
+    sigmoid,
+    squeeze,
+    take_along_axis,
+    zeros,
+)
+from zero_optax._tree import (
+    where as where_select,
+)
+from zero_optax._types import ArrayLike, Tensor
 
 
-def hinge_loss(predictor_outputs: chex.Array, targets: chex.Array) -> chex.Array:
-    """Compute the hinge loss.
+def hinge_loss(
+    predictor_outputs: ArrayLike,
+    targets: ArrayLike,
+) -> Tensor:
+    """Compute the binary hinge loss `max(0, 1 - predictor_outputs * targets)`.
 
     Args:
-        predictor_outputs: The output of the predictor.
-        targets: The target labels.
+        predictor_outputs: Raw decision function outputs.
+        targets: Binary target values in `{-1, +1}`.
 
     Returns:
-        The hinge loss.
-
+        Element-wise hinge loss Tensor.
     """
-    p = jnp.asarray(predictor_outputs)
-    t = jnp.asarray(targets)
-    return cast(Array, jnp.maximum(0.0, 1.0 - p * t))
+    p = asarray(predictor_outputs)
+    t = asarray(targets)
+    return maximum(0.0, 1.0 - p * t)
 
 
 def perceptron_loss(
-    predictor_outputs: chex.Numeric, targets: chex.Numeric
-) -> chex.Numeric:
-    """Compute the perceptron loss.
+    predictor_outputs: ArrayLike,
+    targets: ArrayLike,
+) -> Tensor:
+    """Compute the binary perceptron loss `max(0, -predictor_outputs * targets)`.
 
     Args:
-        predictor_outputs: The output of the predictor.
-        targets: The target labels.
+        predictor_outputs: Raw decision function scores.
+        targets: Binary target values in `{-1, +1}`.
 
     Returns:
-        The perceptron loss.
-
+        Element-wise perceptron loss Tensor.
     """
-    p = jnp.asarray(predictor_outputs)
-    t = jnp.asarray(targets)
-    return cast(Array, jnp.maximum(0.0, -p * t))
+    p = asarray(predictor_outputs)
+    t = asarray(targets)
+    return maximum(0.0, -p * t)
+
+
+def _reduced_empty_shape(
+    shape: tuple[int, ...],
+    axis: int | tuple[int, ...] | None,
+) -> tuple[int, ...]:
+    """Compute output shape when reducing an array with a zero-length dimension.
+
+    Args:
+        shape: Input tensor shape containing at least one zero dimension.
+        axis: Axis or axes reduced over.
+
+    Returns:
+        Shape tuple after removing the reduced axes.
+    """
+    if axis is None:
+        return ()
+    ndim = len(shape)
+    axes = (axis,) if isinstance(axis, int) else axis
+    norm_axes = {a if a >= 0 else ndim + a for a in axes}
+    return tuple(dim for idx, dim in enumerate(shape) if idx not in norm_axes)
 
 
 def _safe_softmax_cross_entropy(
-    logits: Array, labels: Array, axis: int = -1, where: Optional[Array] = None
-) -> Array:
-    """Computes the softmax cross entropy loss safely, avoiding NaN values.
-
-    This function calculates the cross entropy between a probability distribution
-    (from the softmax of logits) and a target distribution (labels). It is designed
-    to be numerically stable, handling `-inf` logits correctly.
+    logits: ArrayLike,
+    labels: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute numerically stable softmax cross-entropy handling `-inf` logits and masks.
 
     Args:
         logits: Unnormalized log probabilities.
-        labels: A valid probability distribution (non-negative, sum to 1).
-        axis: The class axis along which the softmax is computed. Defaults to -1.
-        where: An optional boolean mask array indicating which elements to include
-            in the computation. Elements where `where` is False are ignored.
+        labels: Target probability distribution along `axis`.
+        axis: Class axis or axes along which the softmax is computed.
+        where: Optional boolean mask indicating elements to include.
 
     Returns:
-        An array containing the cross entropy loss per example.
+        Cross-entropy loss Tensor with `axis` reduced.
     """
-    l = jnp.asarray(logits)
-    t = jnp.asarray(labels)
+    l_arr = asarray(logits)
+    t_arr = asarray(labels)
+    if 0 in l_arr.shape:
+        return zeros(_reduced_empty_shape(l_arr.shape, axis))
+
     if where is not None:
-        w = jnp.asarray(where)
-        l = jnp.where(w, l, -jnp.inf)
-        t = jnp.where(w, t, 0.0)
+        w_arr = asarray(where)
+        l_arr = where_select(w_arr, l_arr, NEG_INF)
+        t_arr = where_select(w_arr, t_arr, 0.0)
 
-    if 0 in l.shape:
-        return (
-            cast(Array, jnp.zeros_like(t))
-            if where is None
-            else cast(Array, jnp.zeros_like(t))
-        )
+    c = reduce_max(l_arr, axis=axis, keepdims=True)
+    c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
+    l_minus_c = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
 
-    c = jnp.max(l, axis=axis, keepdims=True)
-    c = jnp.where((jnp.abs(c) == jnp.inf), 0.0, c)
-
-    # Avoid nan from -inf - (-inf)
-    l_minus_c = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l - c)
-
-    exp_l_c = jnp.exp(l_minus_c)
+    exp_l_c = exp(l_minus_c)
     if where is not None:
-        exp_l_c = jnp.where(w, exp_l_c, 0.0)
+        exp_l_c = where_select(asarray(where), exp_l_c, 0.0)
 
-    sumexp = jnp.sum(exp_l_c, axis=axis, keepdims=True)
-    logsumexp = jnp.log(jnp.where(sumexp == 0, 1.0, sumexp))
+    sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
+    logsumexp_val = log(where_select(sumexp == 0.0, 1.0, sumexp))
 
-    log_softmax = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l_minus_c - logsumexp)
+    log_softmax = where_select(
+        abs_tensor(l_arr) == INF,
+        NEG_INF,
+        l_minus_c - logsumexp_val,
+    )
     if where is not None:
-        log_softmax = jnp.where(w, log_softmax, 0.0)
+        log_softmax = where_select(asarray(where), log_softmax, 0.0)
 
-    t_times_log = t * log_softmax
-    t_times_log = jnp.where(t == 0.0, 0.0, t_times_log)
-    res = -jnp.sum(t_times_log, axis=axis)
-    return cast(Array, res)
+    t_times_log = where_select(t_arr == 0.0, 0.0, t_arr * log_softmax)
+    return -reduce_sum(t_times_log, axis=axis)
+
+
+def safe_softmax_cross_entropy(
+    logits: ArrayLike,
+    labels: ArrayLike,
+) -> Tensor:
+    """Compute softmax cross-entropy treating `0 * log(0)` as `0` when `logits = -inf`.
+
+    Args:
+        logits: Unnormalized log probabilities of shape `[..., num_classes]`.
+        labels: Valid probability distributions of shape broadcastable to `logits`.
+
+    Returns:
+        Cross-entropy loss Tensor of shape `[...]`.
+    """
+    return _safe_softmax_cross_entropy(logits, labels, axis=-1, where=None)
 
 
 def softmax_cross_entropy(
-    logits: Array,
-    labels: Array,
-    axis: int = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes the standard softmax cross entropy loss.
-
-    This function wraps `safe_softmax_cross_entropy` and calculates the cross
-    entropy between predicted probabilities (derived from logits) and target
-    labels.
+    logits: ArrayLike,
+    labels: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute standard categorical softmax cross-entropy between logits and labels.
 
     Args:
         logits: Unnormalized log probabilities for each class.
-        labels: Target probability distribution across classes.
-        axis: The axis over which to compute the softmax. Defaults to -1.
-        where: Optional boolean array to mask certain inputs from the loss computation.
+        labels: One-hot or probability target distribution across classes.
+        axis: Axis or axes over which to compute the softmax.
+        where: Optional boolean mask array to exclude masked elements.
 
     Returns:
-        An array containing the calculated softmax cross entropy loss.
+        Calculated softmax cross-entropy loss Tensor.
     """
     return _safe_softmax_cross_entropy(logits, labels, axis=axis, where=where)
 
 
 def softmax_cross_entropy_with_integer_labels(
-    logits: Array,
-    labels: Array,
+    logits: ArrayLike,
+    labels: ArrayLike,
     axis: int = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes softmax cross entropy given mutually exclusive integer labels.
-
-    This function avoids the need to explicitly one-hot encode the labels. It
-    calculates the cross-entropy loss by utilizing the integer class indices directly.
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute softmax cross-entropy given mutually exclusive integer class labels.
 
     Args:
         logits: Unnormalized log probabilities for each class.
         labels: Integer indices representing the true class for each example.
-        axis: The class axis over which to compute the softmax. Defaults to -1.
-        where: Optional boolean mask array indicating which elements to compute.
+        axis: The class axis over which to compute the softmax.
+        where: Optional boolean mask array indicating which elements to include.
 
     Returns:
-        An array containing the calculated softmax cross entropy loss.
+        Calculated softmax cross-entropy loss Tensor.
     """
-    l = jnp.asarray(logits)
-    t = jnp.asarray(labels)
-    if 0 in l.shape:
-        return (
-            cast(Array, jnp.zeros_like(t))
-            if where is None
-            else cast(Array, jnp.zeros_like(t))
-        )
+    l_arr = asarray(logits)
+    t_arr = asarray(labels)
+    if 0 in l_arr.shape:
+        return zeros(t_arr.shape)
 
-    c = jnp.max(l, axis=axis, keepdims=True)
-    logsumexp = jnp.log(jnp.sum(jnp.exp(l - c), axis=axis, keepdims=True))
-    log_softmax = l - c - logsumexp
-    res = -jnp.squeeze(
-        jnp.take_along_axis(log_softmax, jnp.expand_dims(t, axis), axis=axis), axis=axis
-    )
     if where is not None:
-        w = jnp.asarray(where)
-        res = jnp.where(w, res, 0.0)
-    return cast(Array, res)
+        w_arr = asarray(where)
+        l_masked = where_select(w_arr, l_arr, NEG_INF)
+        c = reduce_max(l_masked, axis=axis, keepdims=True)
+        c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
+        shifted = l_arr - c_safe
+        exp_shifted = where_select(w_arr, exp(shifted), 0.0)
+        sumexp = reduce_sum(exp_shifted, axis=axis)
+        log_normalizers = log(sumexp)
+        picked = take_along_axis(shifted, expand_dims(t_arr, axis), axis=axis)
+        label_logits = squeeze(picked, axis=axis)
+        return log_normalizers - label_logits
+
+    c = reduce_max(l_arr, axis=axis, keepdims=True)
+    logsumexp_val = log(reduce_sum(exp(l_arr - c), axis=axis, keepdims=True))
+    log_softmax = l_arr - c - logsumexp_val
+    picked = take_along_axis(log_softmax, expand_dims(t_arr, axis), axis=axis)
+    return -squeeze(picked, axis=axis)
 
 
-def sigmoid_binary_cross_entropy(logits: Array, labels: Array) -> Array:
-    """Computes the binary cross entropy loss utilizing a numerically stable sigmoid.
-
-    This function combines a sigmoid activation and a binary cross entropy loss
-    into a single step for better numerical stability when extreme logits are present.
+def sigmoid_binary_cross_entropy(
+    logits: ArrayLike,
+    labels: ArrayLike,
+) -> Tensor:
+    """Compute element-wise binary cross-entropy using a numerically stable formulation.
 
     Args:
         logits: Unnormalized log probabilities for the positive class.
-        labels: The ground truth binary labels (typically 0 or 1).
+        labels: Binary ground-truth labels in `{0, 1}` or probabilities in `[0, 1]`.
 
     Returns:
-        An array containing the element-wise binary cross entropy loss.
+        Element-wise binary cross-entropy loss Tensor.
     """
-    l = jnp.asarray(logits)
-    t = jnp.asarray(labels)
-    return cast(Array, jnp.maximum(l, 0) - l * t + jnp.log1p(jnp.exp(-jnp.abs(l))))
+    l_arr = asarray(logits)
+    t_arr = asarray(labels)
+    return maximum(l_arr, 0.0) - l_arr * t_arr + log1p(exp(-abs_tensor(l_arr)))
 
 
 def sigmoid_focal_loss(
-    logits: Array,
-    labels: Array,
-    alpha: Optional[float] = None,
-    gamma: float = 2.0,
-) -> Array:
-    """Computes the sigmoid focal loss for dense object detection or classification.
-
-    Focal loss dynamically scales the cross entropy loss based on confidence, down-weighting
-    well-classified examples. This helps prevent the vast number of easy negatives from
-    overwhelming the detector during training.
+    logits: ArrayLike,
+    labels: ArrayLike,
+    *,
+    alpha: float | ArrayLike | None = None,
+    gamma: float | ArrayLike = 2.0,
+) -> Tensor:
+    """Compute the sigmoid focal loss for class-imbalanced binary classification.
 
     Args:
-        logits: Unnormalized log probabilities.
-        labels: The ground truth binary labels (0 or 1).
-        alpha: Optional weighting factor for the positive class to handle class imbalance.
-        gamma: Focusing parameter that smoothly adjusts the rate at which easy
-            examples are down-weighted. Higher values increase the focusing effect.
+        logits: Unnormalized log probabilities for each example.
+        labels: Binary target labels in `{0, 1}`.
+        alpha: Optional weighting factor in `(0, 1)` balancing positive vs negative examples.
+        gamma: Focusing exponent that down-weights well-classified examples.
 
     Returns:
-        An array containing the computed sigmoid focal loss.
+        Element-wise sigmoid focal loss Tensor.
     """
-    l = jnp.asarray(logits)
-    t = jnp.asarray(labels)
-    p = jnn.sigmoid(l)
-    ce = jnp.maximum(l, 0) - l * t + jnp.log1p(jnp.exp(-jnp.abs(l)))
-    p_t = p * t + (1 - p) * (1 - t)
-    loss = ce * ((1 - p_t) ** gamma)
+    l_arr = asarray(logits)
+    t_arr = asarray(labels)
+    p = sigmoid(l_arr)
+    ce = sigmoid_binary_cross_entropy(l_arr, t_arr)
+    p_t = p * t_arr + (1.0 - p) * (1.0 - t_arr)
+    loss = ce * ((1.0 - p_t) ** asarray(gamma))
     if alpha is not None:
-        alpha_t = alpha * t + (1 - alpha) * (1 - t)
+        alpha_t = asarray(alpha) * t_arr + (1.0 - asarray(alpha)) * (1.0 - t_arr)
         loss = alpha_t * loss
-    return cast(Array, loss)
+    return loss
 
 
-def multiclass_hinge_loss(scores: Array, labels: Array) -> Array:
-    """Computes the multiclass formulation of the hinge loss.
-
-    This loss penalizes predictions where the correct class's score is not greater
-    than any incorrect class's score by at least a margin of 1.0. It is useful
-    for training multiclass support vector machines.
-
-    Args:
-        scores: The raw scores or logits predicted for each class.
-        labels: Integer indices representing the true class for each example.
-
-    Returns:
-        An array containing the multiclass hinge loss for each example.
-    """
-    p = jnp.asarray(scores)
-    t = jnp.asarray(labels)
-    correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
-    margins = jnp.maximum(0.0, 1.0 - correct_p + p)
-    mask = jnp.expand_dims(t, -1) == jnp.arange(p.shape[-1])
-    margins = jnp.where(mask, 0.0, margins)
-    return cast(Array, jnp.sum(margins, axis=-1))
-
-
-def multiclass_perceptron_loss(scores: Array, labels: Array) -> Array:
-    """Computes the multiclass perceptron loss.
-
-    Similar to multiclass hinge loss, but without a margin. It penalizes predictions
-    only when an incorrect class has a higher score than the true class.
+def multiclass_hinge_loss(
+    scores: ArrayLike,
+    labels: ArrayLike,
+) -> Tensor:
+    """Compute Crammer-Singer multiclass hinge loss for integer labels.
 
     Args:
-        scores: The raw scores or logits predicted for each class.
-        labels: Integer indices representing the true class for each example.
+        scores: Raw model scores for each class of shape `[..., num_classes]`.
+        labels: Integer ground-truth class indices of shape `[...]`.
 
     Returns:
-        An array containing the multiclass perceptron loss for each example.
+        Multiclass hinge loss per example of shape `[...]`.
     """
-    p = jnp.asarray(scores)
-    t = jnp.asarray(labels)
-    correct_p = jnp.take_along_axis(p, jnp.expand_dims(t, -1), axis=-1)
-    margins = jnp.maximum(0.0, -correct_p + p)
-    mask = jnp.expand_dims(t, -1) == jnp.arange(p.shape[-1])
-    margins = jnp.where(mask, 0.0, margins)
-    return cast(Array, jnp.sum(margins, axis=-1))
+    p = asarray(scores)
+    t = asarray(labels)
+    correct_p = squeeze(take_along_axis(p, expand_dims(t, -1), axis=-1), axis=-1)
+    one_hot = expand_dims(t, -1) == arange(p.shape[-1])
+    margin_scores = p + where_select(one_hot, 0.0, 1.0)
+    return reduce_max(margin_scores, axis=-1) - correct_p
+
+
+def multiclass_perceptron_loss(
+    scores: ArrayLike,
+    labels: ArrayLike,
+) -> Tensor:
+    """Compute multiclass perceptron loss `max_j scores_j - scores_label`.
+
+    Args:
+        scores: Raw model scores for each class of shape `[..., num_classes]`.
+        labels: Integer ground-truth class indices of shape `[...]`.
+
+    Returns:
+        Multiclass perceptron loss per example of shape `[...]`.
+    """
+    p = asarray(scores)
+    t = asarray(labels)
+    correct_p = squeeze(take_along_axis(p, expand_dims(t, -1), axis=-1), axis=-1)
+    return reduce_max(p, axis=-1) - correct_p
 
 
 def poly_loss_cross_entropy(
-    logits: Array,
-    labels: Array,
-    epsilon: float = 2.0,
-    axis: int = -1,
-    where: Optional[Array] = None,
-) -> Array:
-    """Computes the PolyLoss modification of cross-entropy.
-
-    PolyLoss is an alternative to cross-entropy that adjusts the loss by adding
-    a polynomial expansion term based on the leading polynomial coefficient. It
-    often improves convergence and accuracy for classification tasks.
+    logits: ArrayLike,
+    labels: ArrayLike,
+    *,
+    epsilon: float | ArrayLike = 2.0,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute PolyLoss-1 cross-entropy with polynomial expansion weight `epsilon`.
 
     Args:
-        logits: Unnormalized log probabilities for each class.
-        labels: A valid target probability distribution (non-negative, sum to 1).
-        epsilon: The polynomial weighting coefficient adjusting the contribution
-            of the leading polynomial term. Defaults to 2.0.
-        axis: The class axis along which to compute the softmax. Defaults to -1.
-        where: Optional boolean array to mask certain inputs from the loss computation.
+        logits: Unnormalized log probabilities of shape `[..., num_classes]`.
+        labels: Target probability distributions along `axis`.
+        epsilon: Coefficient of the first polynomial expansion term `(1 - P_t)`.
+        axis: Class axis or axes along which to compute softmax.
+        where: Optional boolean mask array to exclude masked elements.
 
     Returns:
-        An array containing the calculated poly-loss cross entropy.
+        PolyLoss cross-entropy Tensor with `axis` reduced.
     """
-    l = jnp.asarray(logits)
-    t = jnp.asarray(labels)
-    ce = _safe_softmax_cross_entropy(l, t, axis=axis, where=where)
+    l_arr = asarray(logits)
+    t_arr = asarray(labels)
+    if 0 in l_arr.shape:
+        return zeros(_reduced_empty_shape(l_arr.shape, axis))
+
+    ce = _safe_softmax_cross_entropy(l_arr, t_arr, axis=axis, where=where)
     if where is not None:
-        w = jnp.asarray(where)
-        l = jnp.where(w, l, -jnp.inf)
-        t = jnp.where(w, t, 0.0)
+        w_arr = asarray(where)
+        l_arr = where_select(w_arr, l_arr, NEG_INF)
+        t_arr = where_select(w_arr, t_arr, 0.0)
 
-    if 0 in l.shape:
-        return (
-            cast(Array, jnp.zeros_like(t))
-            if where is None
-            else cast(Array, jnp.zeros_like(t))
-        )
+    c = reduce_max(l_arr, axis=axis, keepdims=True)
+    c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
+    l_minus_c = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
 
-    c = jnp.max(l, axis=axis, keepdims=True)
-    c = jnp.where((jnp.abs(c) == jnp.inf), 0.0, c)
-
-    # Avoid nan from -inf - (-inf)
-    l_minus_c = jnp.where((jnp.abs(l) == jnp.inf), -jnp.inf, l - c)
-
-    exp_l_c = jnp.exp(l_minus_c)
+    exp_l_c = exp(l_minus_c)
     if where is not None:
-        exp_l_c = jnp.where(w, exp_l_c, 0.0)
+        exp_l_c = where_select(asarray(where), exp_l_c, 0.0)
 
-    sumexp = jnp.sum(exp_l_c, axis=axis, keepdims=True)
-    logsumexp = jnp.log(jnp.where(sumexp == 0, 1.0, sumexp))
+    sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
+    logsumexp_val = log(where_select(sumexp == 0.0, 1.0, sumexp))
 
-    p = jnp.exp(l - c - logsumexp)
+    probs = exp(l_minus_c - logsumexp_val)
     if where is not None:
-        p = jnp.where(w, p, 0.0)
+        probs = where_select(asarray(where), probs, 0.0)
 
-    pt = jnp.sum(p * t, axis=axis)
-
-    one_minus_pt = jnp.sum(t * (1.0 - p), axis=axis)
-    res = ce + epsilon * one_minus_pt
-    return cast(Array, res)
+    one_minus_pt = reduce_sum(t_arr * (1.0 - probs), axis=axis)
+    return ce + asarray(epsilon) * one_minus_pt
 
 
-def safe_softmax_cross_entropy(logits: Array, labels: Array) -> Array:
-    """Computes the safe softmax cross entropy."""
-    return cast(
-        Array, _safe_softmax_cross_entropy(cast(Array, logits), cast(Array, labels))
-    )
+def kl_divergence(
+    log_predictions: ArrayLike,
+    targets: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute Kullback-Leibler divergence `sum(targets * (log(targets) - log_predictions))`.
+
+    Args:
+        log_predictions: Log-probabilities of predicted distribution.
+        targets: Target probability distribution (non-negative).
+        axis: Axis or axes along which to sum the divergence.
+        where: Optional boolean mask specifying elements to include.
+
+    Returns:
+        KL divergence Tensor with `axis` reduced.
+    """
+    log_p = asarray(log_predictions)
+    t_arr = asarray(targets)
+    safe_t = where_select(t_arr <= 0.0, 1.0, t_arr)
+    log_t = where_select(t_arr == 0.0, 0.0, log(safe_t))
+    loss = where_select(t_arr == 0.0, 0.0, t_arr * (log_t - log_p))
+    if where is not None:
+        loss = where_select(asarray(where), loss, 0.0)
+    return reduce_sum(loss, axis=axis)
+
+
+def kl_divergence_with_log_targets(
+    log_predictions: ArrayLike,
+    log_targets: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute Kullback-Leibler divergence when both predictions and targets are in log-space.
+
+    Args:
+        log_predictions: Log-probabilities of predicted distribution.
+        log_targets: Log-probabilities of target distribution.
+        axis: Axis or axes along which to sum the divergence.
+        where: Optional boolean mask specifying elements to include.
+
+    Returns:
+        KL divergence Tensor with `axis` reduced.
+    """
+    log_p = asarray(log_predictions)
+    log_t = asarray(log_targets)
+    loss = exp(log_t) * (log_t - log_p)
+    if where is not None:
+        loss = where_select(asarray(where), loss, 0.0)
+    return reduce_sum(loss, axis=axis)
+
+
+def convex_kl_divergence(
+    log_predictions: ArrayLike,
+    targets: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute jointly convex Kullback-Leibler divergence `KL(targets || pred) + sum(pred - targets)`.
+
+    Args:
+        log_predictions: Log-probabilities of predicted distribution.
+        targets: Target probability distribution.
+        axis: Axis or axes along which to sum the divergence.
+        where: Optional boolean mask specifying elements to include.
+
+    Returns:
+        Convex KL divergence Tensor with `axis` reduced.
+    """
+    kl = kl_divergence(log_predictions, targets, axis=axis, where=where)
+    diff = exp(asarray(log_predictions)) - asarray(targets)
+    if where is not None:
+        diff = where_select(asarray(where), diff, 0.0)
+    return kl + reduce_sum(diff, axis=axis)
+
+
+def smooth_labels(
+    labels: ArrayLike,
+    alpha: float,
+) -> Tensor:
+    """Apply label smoothing to one-hot target distributions.
+
+    Args:
+        labels: One-hot encoded target labels of shape `[..., num_classes]`.
+        alpha: Smoothing factor in `[0, 1]`.
+
+    Returns:
+        Smoothed label distribution `(1 - alpha) * labels + alpha / num_classes`.
+    """
+    t_arr = asarray(labels)
+    num_categories = float(t_arr.shape[-1])
+    return (1.0 - alpha) * t_arr + (alpha / num_categories)
+
+
+__all__ = [
+    "convex_kl_divergence",
+    "hinge_loss",
+    "kl_divergence",
+    "kl_divergence_with_log_targets",
+    "multiclass_hinge_loss",
+    "multiclass_perceptron_loss",
+    "perceptron_loss",
+    "poly_loss_cross_entropy",
+    "safe_softmax_cross_entropy",
+    "sigmoid_binary_cross_entropy",
+    "sigmoid_focal_loss",
+    "smooth_labels",
+    "softmax_cross_entropy",
+    "softmax_cross_entropy_with_integer_labels",
+]

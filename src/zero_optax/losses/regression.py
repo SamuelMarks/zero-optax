@@ -1,81 +1,192 @@
-"""Regression losses."""
+"""Regression loss functions."""
 
-from typing import Any, Optional
+from __future__ import annotations
 
-from zero_jax import Array
-from typing import cast
-import zero_jax.numpy as jnp
+import math
 
-
-def squared_error(predictions: Array, targets: Optional[Array] = None) -> Array:
-    """Calculates the squared difference between predictions and targets.
-
-    This loss is un-scaled and represents the squared Euclidean distance
-    element-wise between the predicted values and the target values. If targets
-    are omitted, they are assumed to be zero.
-
-    Args:
-        predictions: The predicted values as an Array.
-        targets: The ground truth target labels. If None, targets are implicitly
-            assumed to be an array of zeros with the same shape as predictions.
-
-    Returns:
-        An array of the same shape containing the element-wise squared errors.
-    """
-    p = jnp.asarray(predictions)
-    if targets is None:
-        t = jnp.zeros_like(p)
-    else:
-        t = jnp.asarray(targets)
-    return cast(Array, (p - t) ** 2)
+from zero_optax._tree import (
+    abs_tensor,
+    asarray,
+    exp,
+    log1p,
+    maximum,
+    reduce_sum,
+    sqrt,
+    where,
+    zeros_like,
+)
+from zero_optax._types import ArrayLike, Tensor
 
 
-def l2_loss(predictions: Array, targets: Optional[Array] = None) -> Array:
-    """Calculates the standard L2 loss (half the squared error).
-
-    The L2 loss is half of the squared error. The scaling factor of 0.5 is
-    mathematically convenient because it cancels out when the derivative
-    is computed with respect to the predictions.
+def squared_error(
+    predictions: ArrayLike,
+    targets: ArrayLike | None = None,
+) -> Tensor:
+    """Calculate the element-wise squared error for a set of predictions.
 
     Args:
-        predictions: The predicted values as an Array.
-        targets: The ground truth target labels. If None, defaults to an array of zeros.
+        predictions: Predicted values tensor of arbitrary shape.
+        targets: Ground-truth target values broadcastable to `predictions`. If
+            None, targets are assumed to be zeros matching `predictions`.
 
     Returns:
-        An array of the same shape containing the element-wise L2 losses.
+        Element-wise squared error `(predictions - targets) ** 2`.
     """
-    p = jnp.asarray(predictions)
-    if targets is None:
-        t = jnp.zeros_like(p)
-    else:
-        t = jnp.asarray(targets)
-    return cast(Array, 0.5 * (p - t) ** 2)
+    p = asarray(predictions)
+    t = zeros_like(p) if targets is None else asarray(targets)
+    diff = p - t
+    return diff * diff
+
+
+def l2_loss(
+    predictions: ArrayLike,
+    targets: ArrayLike | None = None,
+) -> Tensor:
+    """Calculate the L2 loss (half squared error) for a set of predictions.
+
+    Args:
+        predictions: Predicted values tensor of arbitrary shape.
+        targets: Ground-truth target values broadcastable to `predictions`. If
+            None, targets are assumed to be zeros matching `predictions`.
+
+    Returns:
+        Element-wise L2 loss `0.5 * (predictions - targets) ** 2`.
+    """
+    return 0.5 * squared_error(predictions, targets)
 
 
 def huber_loss(
-    predictions: Array, targets: Optional[Array] = None, delta: float = 1.0
-) -> Array:
-    """Calculates the Huber loss, a robust loss function for regression.
+    predictions: ArrayLike,
+    targets: ArrayLike | None = None,
+    *,
+    delta: float | ArrayLike = 1.0,
+) -> Tensor:
+    """Calculate the Huber loss for a set of predictions.
 
-    Huber loss transitions from a squared error for small errors (less than `delta`)
-    to an absolute error for large errors. This makes it less sensitive to outliers
-    than standard squared error.
+    Combines quadratic loss for small errors (`|diff| < delta`) and linear
+    loss for large errors (`|diff| >= delta`).
 
     Args:
-        predictions: The predicted values as an Array.
-        targets: The ground truth target labels. If None, defaults to zeros.
-        delta: The threshold parameter that determines where the loss transitions
-            from quadratic to linear. Defaults to 1.0.
+        predictions: Predicted values tensor of arbitrary shape.
+        targets: Ground-truth target values broadcastable to `predictions`. If
+            None, targets are assumed to be zeros matching `predictions`.
+        delta: Threshold radius separating quadratic and linear error regions.
 
     Returns:
-        An array of the same shape containing the element-wise Huber losses.
+        Element-wise Huber loss Tensor.
     """
-    p = jnp.asarray(predictions)
-    if targets is None:
-        t = jnp.zeros_like(p)
-    else:
-        t = jnp.asarray(targets)
-    diff = jnp.abs(p - t)
-    return cast(
-        Array, jnp.where(diff < delta, 0.5 * diff**2, delta * (diff - 0.5 * delta))
+    p = asarray(predictions)
+    t = zeros_like(p) if targets is None else asarray(targets)
+    d = asarray(delta)
+    diff = abs_tensor(p - t)
+    return where(diff < d, 0.5 * diff * diff, d * (diff - 0.5 * d))
+
+
+def log_cosh(
+    predictions: ArrayLike,
+    targets: ArrayLike | None = None,
+) -> Tensor:
+    """Calculate the log-cosh loss for a set of predictions.
+
+    `log(cosh(x))` is a twice-differentiable smooth approximation to Huber loss,
+    behaving like `x^2 / 2` for small `x` and `|x| - log(2)` for large `x`.
+
+    Args:
+        predictions: Predicted values tensor of arbitrary shape.
+        targets: Ground-truth target values broadcastable to `predictions`. If
+            None, targets are assumed to be zeros matching `predictions`.
+
+    Returns:
+        Element-wise log-cosh loss Tensor.
+    """
+    p = asarray(predictions)
+    errors = p if targets is None else p - asarray(targets)
+    abs_err = abs_tensor(errors)
+    return abs_err + log1p(exp(-2.0 * abs_err)) - math.log(2.0)
+
+
+def cosine_similarity(
+    predictions: ArrayLike,
+    targets: ArrayLike,
+    epsilon: float = 0.0,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute the cosine similarity between `predictions` and `targets`.
+
+    Args:
+        predictions: Predicted vectors of shape `[..., dim]`.
+        targets: Ground-truth target vectors of shape `[..., dim]`.
+        epsilon: Minimum norm floor for denominator terms to avoid division by zero.
+        axis: Axis or axes along which the vector inner product is computed.
+        where: Optional boolean mask specifying elements to include.
+
+    Returns:
+        Cosine similarity Tensor with `axis` reduced.
+    """
+    a = asarray(predictions)
+    b = asarray(targets)
+    if where is not None:
+        w = asarray(where)
+        a = where_mask(w, a, 0.0)
+        b = where_mask(w, b, 0.0)
+    a_norm2 = reduce_sum(a * a, axis=axis, keepdims=True)
+    b_norm2 = reduce_sum(b * b, axis=axis, keepdims=True)
+    eps_t = asarray(epsilon)
+    a_norm = sqrt(maximum(a_norm2, eps_t))
+    b_norm = sqrt(maximum(b_norm2, eps_t))
+    a_unit = where_mask(a_norm > 0.0, a / where_mask(a_norm > 0.0, a_norm, 1.0), 0.0)
+    b_unit = where_mask(b_norm > 0.0, b / where_mask(b_norm > 0.0, b_norm, 1.0), 0.0)
+    prod = a_unit * b_unit
+    if where is not None:
+        prod = where_mask(asarray(where), prod, 0.0)
+    return reduce_sum(prod, axis=axis)
+
+
+def where_mask(condition: ArrayLike, x: ArrayLike, y: ArrayLike) -> Tensor:
+    """Helper wrapping `where` to avoid name shadowing when parameter is named `where`.
+
+    Args:
+        condition: Boolean condition tensor.
+        x: Value when condition is True.
+        y: Value when condition is False.
+
+    Returns:
+        Selected Tensor.
+    """
+    return where(condition, x, y)
+
+
+def cosine_distance(
+    predictions: ArrayLike,
+    targets: ArrayLike,
+    epsilon: float = 0.0,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
+) -> Tensor:
+    """Compute the cosine distance `1.0 - cosine_similarity(predictions, targets)`.
+
+    Args:
+        predictions: Predicted vectors of shape `[..., dim]`.
+        targets: Ground-truth target vectors of shape `[..., dim]`.
+        epsilon: Minimum norm floor for denominator terms.
+        axis: Axis or axes along which to compute distance.
+        where: Optional boolean mask specifying elements to include.
+
+    Returns:
+        Cosine distance Tensor with `axis` reduced.
+    """
+    return 1.0 - cosine_similarity(
+        predictions, targets, epsilon=epsilon, axis=axis, where=where
     )
+
+
+__all__ = [
+    "cosine_distance",
+    "cosine_similarity",
+    "huber_loss",
+    "l2_loss",
+    "log_cosh",
+    "squared_error",
+    "where_mask",
+]

@@ -1,131 +1,156 @@
-"""LARS optimizer."""
+"""LARS (Layer-wise Adaptive Rate Scaling) optimizer."""
 
-from typing import Any, Callable, NamedTuple, Optional, Tuple, Union
+from __future__ import annotations
 
-import zero_jax.numpy as jnp
-from zero_jax.tree_util import tree_map
+from typing import NamedTuple
 
-from zero_optax.base import GradientTransformation, PyTree, Params, Updates
-from zero_optax.optimizers.sgd import ScaleByScheduleState, TraceState
+from zero_optax._tree import apply_mask_tree, asarray, resolve_mask
+from zero_optax._types import (
+    MaskOrFn,
+    Params,
+    ScalarOrSchedule,
+    Updates,
+)
+from zero_optax.base import (
+    EmptyState,
+    GradientTransformation,
+    OptState,
+    ScaleByScheduleState,
+    TraceState,
+)
+from zero_optax.transform import (
+    AddDecayedWeightsState,
+    add_decayed_weights,
+    scale_by_learning_rate,
+    scale_by_trust_ratio,
+    trace,
+)
 
 
 class LarsState(NamedTuple):
-    """State for the LARS optimizer."""
+    """State for the LARS optimizer.
+
+    Attributes:
+        trace_state: State holding momentum trace.
+        scale_state: State tracking the schedule step count.
+    """
 
     trace_state: TraceState
     scale_state: ScaleByScheduleState
 
 
+def _as_trace_state(state: OptState) -> TraceState:
+    """Narrow `OptState` from `trace` to `TraceState`.
+
+    Args:
+        state: State returned by `trace`.
+
+    Returns:
+        `TraceState` instance.
+
+    Raises:
+        TypeError: If `state` is not a `TraceState`.
+    """
+    if isinstance(state, TraceState):
+        return state
+    raise TypeError(f"Expected TraceState, got {type(state)!r}")
+
+
 def lars(
-    learning_rate: Union[float, jnp.ndarray, Callable[[jnp.ndarray], jnp.ndarray]],
+    learning_rate: ScalarOrSchedule,
     weight_decay: float = 0.0,
-    weight_decay_mask: Optional[Union[PyTree, Callable[[PyTree], PyTree]]] = True,
+    weight_decay_mask: MaskOrFn = True,
     trust_coefficient: float = 0.001,
     eps: float = 0.0,
-    trust_ratio_mask: Optional[Union[PyTree, Callable[[PyTree], PyTree]]] = True,
+    trust_ratio_mask: MaskOrFn = True,
     momentum: float = 0.9,
     nesterov: bool = False,
 ) -> GradientTransformation:
-    """The LARS optimizer.
-
-    LARS is a layer-wise adaptive optimizer introduced to help scale SGD to
-    larger batch sizes. LARS later inspired the LAMB optimizer.
+    """Create the LARS (Layer-wise Adaptive Rate Scaling) optimizer.
 
     Args:
-      learning_rate: A global scaling factor.
-      weight_decay: Strength of the weight decay regularization.
-      weight_decay_mask: A tree with same structure as (or a prefix of) the params
-        PyTree, or a Callable that returns such a pytree given the params/updates.
-      trust_coefficient: A multiplier for the trust ratio.
-      eps: Optional additive constant in the trust ratio denominator.
-      trust_ratio_mask: A tree with same structure as (or a prefix of) the params
-        PyTree, or a Callable that returns such a pytree given the params/updates.
-      momentum: Decay rate for momentum.
-      nesterov: Whether to use Nesterov momentum.
+        learning_rate: Global scaling factor or schedule callable.
+        weight_decay: Strength of L2 weight decay regularization.
+        weight_decay_mask: Mask or callable specifying which parameters get weight decay.
+        trust_coefficient: Trust coefficient multiplier (`eeta`).
+        eps: Additive constant in the trust ratio denominator.
+        trust_ratio_mask: Mask or callable specifying which parameters get trust ratio scaling.
+        momentum: Momentum decay rate.
+        nesterov: Whether to apply Nesterov momentum.
 
     Returns:
-      The corresponding :class:`optax.GradientTransformation`.
+        A `GradientTransformation` implementing LARS.
     """
+    wd_tx = add_decayed_weights(weight_decay=weight_decay, mask=weight_decay_mask)
+    trust_tx = scale_by_trust_ratio(
+        trust_coefficient=trust_coefficient,
+        eps=eps,
+    )
+    lr_tx = scale_by_learning_rate(learning_rate)
+    trace_tx = trace(decay=momentum, nesterov=nesterov)
 
     def init_fn(params: Params) -> LarsState:
-        trace = tree_map(lambda t: jnp.zeros_like(t), params)
+        """Initialize the LARS state for `params`.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `LarsState`.
+        """
         return LarsState(
-            trace_state=TraceState(trace=trace),
-            scale_state=ScaleByScheduleState(count=jnp.array(0)),
+            trace_state=_as_trace_state(trace_tx.init(params)),
+            scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
     def update_fn(
-        updates: Updates, state: LarsState, params: Optional[Params] = None
-    ) -> Tuple[Updates, LarsState]:
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, LarsState]:
+        """Apply weight decay, trust-ratio scaling, learning rate, and momentum.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `LarsState`.
+            params: Current model parameters PyTree (required).
+
+        Returns:
+            Tuple of `(transformed_updates, new_lars_state)`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
         if params is None:
-            raise ValueError(
-                "You must pass `params` to the `update` function of `lars`."
-            )
+            raise ValueError("`params` must be provided to `lars` update.")
+        if not isinstance(state, LarsState):
+            state = init_fn(params)
 
-        # Determine masks
-        if callable(weight_decay_mask):
-            wd_mask = weight_decay_mask(params)
-        elif isinstance(weight_decay_mask, bool):
-            wd_mask = tree_map(lambda _: weight_decay_mask, params)
-        else:
-            wd_mask = weight_decay_mask
-
-        if callable(trust_ratio_mask):
-            tr_mask = trust_ratio_mask(params)
-        elif isinstance(trust_ratio_mask, bool):
-            tr_mask = tree_map(lambda _: trust_ratio_mask, params)
-        else:
-            tr_mask = trust_ratio_mask
-
-        # Add decayed weights
-        def _add_decayed_weights(g, p, msk):
-            if msk:
-                return g + weight_decay * p
-            return g
-
-        updates = tree_map(_add_decayed_weights, updates, params, wd_mask)
-
-        # Trust ratio scaling
-        def _scale_by_trust_ratio(g, p, msk):
-            if not msk:
-                return g
-            param_norm = jnp.sqrt(jnp.sum(jnp.square(p)))
-            update_norm = jnp.sqrt(jnp.sum(jnp.square(g)))
-            trust_ratio = trust_coefficient * param_norm / (update_norm + eps)
-
-            zero_norm = (param_norm == 0.0) + (update_norm == 0.0) > 0
-            safe_trust_ratio = jnp.where(
-                zero_norm, jnp.array(1.0, dtype=p.dtype), trust_ratio
-            )
-            return g * safe_trust_ratio
-
-        updates = tree_map(_scale_by_trust_ratio, updates, params, tr_mask)
-
-        # Learning rate
         count = state.scale_state.count
-        if callable(learning_rate):
-            step_lr = learning_rate(count)
-        else:
-            step_lr = learning_rate
-
-        updates = tree_map(lambda u: -step_lr * u, updates)
-
-        # Trace
-        trace = state.trace_state.trace
-
-        def _update_momentum(g, t):
-            return g + momentum * t
-
-        new_trace = tree_map(_update_momentum, updates, trace)
-
-        if nesterov:
-            updates = tree_map(_update_momentum, updates, new_trace)
-        else:
-            updates = new_trace
-
-        return updates, LarsState(
-            trace_state=TraceState(trace=new_trace),
+        decayed_updates, _ = wd_tx.update(
+            updates, AddDecayedWeightsState(count=count), params
+        )
+        scaled_updates, _ = trust_tx.update(decayed_updates, EmptyState(), params)
+        tr_mask_tree = resolve_mask(trust_ratio_mask, params)
+        if tr_mask_tree is not None:
+            scaled_updates = apply_mask_tree(
+                scaled_updates, decayed_updates, tr_mask_tree
+            )
+        lr_updates, _ = lr_tx.update(scaled_updates, state.scale_state, params)
+        final_updates, next_trace = trace_tx.update(
+            lr_updates, state.trace_state, params
+        )
+        return final_updates, LarsState(
+            trace_state=_as_trace_state(next_trace),
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
     return GradientTransformation(init_fn, update_fn)
+
+
+__all__ = [
+    "LarsState",
+    "ScaleByScheduleState",
+    "TraceState",
+    "lars",
+]

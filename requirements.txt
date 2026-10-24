@@ -1,2 +1,2 @@
-zero_jax
-ml-switcheroo-compiler
+ml-switcheroo-ir @ git+https://github.com/SamuelMarks/ml-switcheroo-ir.git@master
+ml-switcheroo-compiler @ git+https://github.com/SamuelMarks/ml-switcheroo-compiler.git@master
