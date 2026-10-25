@@ -56,6 +56,11 @@ def sparsemax_loss(
 def _simplex_support_mask_2d(scores_2d: Tensor) -> Tensor:
     """Determine the boolean active support mask of the simplex projection for each 2D row.
 
+    Because the active support indicator `I(s_c > tau(s))` is piecewise constant
+    almost everywhere (`stop_gradient`), its discrete sorting threshold can be
+    evaluated without propagating gradients through the indicator itself while
+    `tau` and `proba` remain differentiable functions of `scores_2d`.
+
     Args:
         scores_2d: 2D Tensor of shape `(num_examples, num_classes)`.
 

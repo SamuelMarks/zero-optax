@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from zero_optax._tree import asarray, reduce_sum, reshape
+from zero_optax._tree import asarray, reduce_sum, reshape, stack
 from zero_optax._types import ArrayLike, Tensor
 
 
@@ -104,7 +104,7 @@ def make_fenchel_young_loss(
             row_maxes = [
                 asarray(max_fun(s_2d[i], *args, **kwargs)) for i in range(num_examples)
             ]
-            max_val = reshape(asarray(row_maxes), lead_shape)
+            max_val = reshape(stack(row_maxes, axis=0), lead_shape)
         return max_val - inner_prod
 
     return fenchel_young_loss

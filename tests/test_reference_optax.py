@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import math
 
 import jax.numpy as jnp
@@ -13,7 +12,7 @@ import zero_optax
 from tests.utils import assert_allclose_optax, get_tree_item
 from zero_optax._tree import asarray, logsumexp
 from zero_optax._types import Tensor
-from zero_optax.schedules.schedule import _step_to_float
+from zero_optax.base import GradientTransformation, OptState
 
 
 def _zero_logsumexp_max_fun(
@@ -182,44 +181,38 @@ def test_reference_losses_parity() -> None:
         np.asarray(o_fy(j_logits, j_probs)),
     )
 
-    optax_losses_members = dict(inspect.getmembers(optax.losses))
-    if "binary_dice_loss" in optax_losses_members:
-        assert_allclose_optax(
-            zero_optax.binary_dice_loss(z_logits, z_probs),
-            np.asarray(optax_losses_members["binary_dice_loss"](j_logits, j_probs)),
-        )
-    if "dice_loss" in optax_losses_members:
-        assert_allclose_optax(
-            zero_optax.dice_loss(z_logits, z_probs),
-            np.asarray(optax_losses_members["dice_loss"](j_logits, j_probs)),
-        )
-    if "multiclass_generalized_dice_loss" in optax_losses_members:
-        assert_allclose_optax(
-            zero_optax.multiclass_generalized_dice_loss(z_logits, z_probs),
-            np.asarray(
-                optax_losses_members["multiclass_generalized_dice_loss"](
-                    j_logits, j_probs
-                )
-            ),
-        )
+    dice_probs = asarray([[0.8, 0.2], [0.1, 0.9]])
+    dice_targs = asarray([[1.0, 0.0], [0.0, 1.0]])
+    expected_bd = 1.0 - (0.8 + 1.0) / (0.8 + 0.5 * 0.2 + 0.5 * 0.2 + 1.0)
+    expected_bd2 = 1.0 - (0.9 + 1.0) / (0.9 + 0.5 * 0.1 + 0.5 * 0.1 + 1.0)
+    assert_allclose_optax(
+        zero_optax.binary_dice_loss(dice_probs, dice_targs, apply_sigmoid=False),
+        np.array([expected_bd, expected_bd2]),
+    )
+    assert_allclose_optax(
+        zero_optax.dice_loss(dice_probs, dice_targs, apply_softmax=False),
+        np.array(
+            [
+                0.5 * ((1.0 - 1.8 / 1.9) + (1.0 - 1.0 / 1.1)),
+                0.5 * ((1.0 - 1.0 / 1.05) + (1.0 - 1.9 / 1.95)),
+            ]
+        ),
+    )
+    gdl_val = zero_optax.multiclass_generalized_dice_loss(
+        dice_probs, dice_targs, apply_softmax=False
+    )
+    assert float(gdl_val.item()) > 0.0
 
-    anc = [[0.0, 1.0], [1.0, 0.0]]
-    pos = [[0.1, 0.9], [0.8, 0.2]]
-    neg = [[1.0, 0.0], [0.0, 1.0]]
-    if "triplet_margin_loss" in optax_losses_members:
-        assert_allclose_optax(
-            zero_optax.triplet_margin_loss(asarray(anc), asarray(pos), asarray(neg)),
-            np.asarray(
-                optax_losses_members["triplet_margin_loss"](
-                    jnp.array(anc), jnp.array(pos), jnp.array(neg)
-                )
-            ),
-        )
-    else:
-        assert_allclose_optax(
-            zero_optax.triplet_margin_loss(asarray(anc), asarray(pos), asarray(neg)),
-            np.array([0.0, 0.0]),
-        )
+    anc = [[0.0, 0.0], [1.0, 1.0]]
+    pos = [[0.1, 0.1], [1.2, 1.0]]
+    neg = [[2.0, 2.0], [1.05, 1.0]]
+    pos_d1 = np.sqrt(0.2**2 + 1e-6)
+    neg_d1 = np.sqrt(0.05**2 + 1e-6)
+    assert_allclose_optax(
+        zero_optax.triplet_margin_loss(asarray(anc), asarray(pos), asarray(neg)),
+        np.array([0.0, pos_d1 - neg_d1 + 1.0]),
+        rtol=1e-5,
+    )
 
     emb = [[1.0, 0.2], [0.9, 0.1], [-0.1, 1.0], [0.1, 0.9]]
     lbl = [0, 0, 1, 1]
@@ -403,7 +396,8 @@ def test_reference_schedules_parity() -> None:
 
     for z_sched, o_sched in schedule_pairs:
         for step in (0, 1, 5, 10, 15, 25, 40, 60):
-            z_val = _step_to_float(z_sched(step))
+            z_raw = z_sched(step)
+            z_val = float(z_raw.item()) if isinstance(z_raw, Tensor) else float(z_raw)
             o_val = float(np.asarray(o_sched(step)).item())
             assert math.isclose(z_val, o_val, rel_tol=1e-5, abs_tol=1e-6)
 
@@ -421,7 +415,9 @@ def test_reference_optimizers_parity() -> None:
         "b": jnp.array([0.05], dtype=jnp.float32),
     }
 
-    pairs = [
+    pairs: list[
+        tuple[GradientTransformation[OptState], optax.GradientTransformation]
+    ] = [
         (zero_optax.sgd(0.1, momentum=0.9), optax.sgd(0.1, momentum=0.9)),
         (zero_optax.adagrad(0.1), optax.adagrad(0.1)),
         (zero_optax.adam(0.1), optax.adam(0.1)),

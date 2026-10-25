@@ -12,7 +12,6 @@ from zero_optax._types import (
     Updates,
 )
 from zero_optax.base import (
-    EmptyState,
     GradientTransformation,
     OptState,
     ScaleByScheduleState,
@@ -20,6 +19,7 @@ from zero_optax.base import (
 )
 from zero_optax.transform import (
     AddDecayedWeightsState,
+    ScaleByTrustRatioState,
     add_decayed_weights,
     scale_by_learning_rate,
     scale_by_trust_ratio,
@@ -39,23 +39,6 @@ class LarsState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_trace_state(state: OptState) -> TraceState:
-    """Narrow `OptState` from `trace` to `TraceState`.
-
-    Args:
-        state: State returned by `trace`.
-
-    Returns:
-        `TraceState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `TraceState`.
-    """
-    if isinstance(state, TraceState):
-        return state
-    raise TypeError(f"Expected TraceState, got {type(state)!r}")
-
-
 def lars(
     learning_rate: ScalarOrSchedule,
     weight_decay: float = 0.0,
@@ -65,7 +48,7 @@ def lars(
     trust_ratio_mask: MaskOrFn = True,
     momentum: float = 0.9,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[LarsState]:
     """Create the LARS (Layer-wise Adaptive Rate Scaling) optimizer.
 
     Args:
@@ -99,7 +82,7 @@ def lars(
             Initialized `LarsState`.
         """
         return LarsState(
-            trace_state=_as_trace_state(trace_tx.init(params)),
+            trace_state=trace_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -119,18 +102,21 @@ def lars(
             Tuple of `(transformed_updates, new_lars_state)`.
 
         Raises:
+            TypeError: If `state` is not a `LarsState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError("`params` must be provided to `lars` update.")
         if not isinstance(state, LarsState):
-            state = init_fn(params)
+            raise TypeError(f"Expected LarsState in lars, got {type(state)!r}.")
 
         count = state.scale_state.count
         decayed_updates, _ = wd_tx.update(
             updates, AddDecayedWeightsState(count=count), params
         )
-        scaled_updates, _ = trust_tx.update(decayed_updates, EmptyState(), params)
+        scaled_updates, _ = trust_tx.update(
+            decayed_updates, ScaleByTrustRatioState(), params
+        )
         tr_mask_tree = resolve_mask(trust_ratio_mask, params)
         if tr_mask_tree is not None:
             scaled_updates = apply_mask_tree(
@@ -141,7 +127,7 @@ def lars(
             lr_updates, state.trace_state, params
         )
         return final_updates, LarsState(
-            trace_state=_as_trace_state(next_trace),
+            trace_state=next_trace,
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
@@ -150,7 +136,5 @@ def lars(
 
 __all__ = [
     "LarsState",
-    "ScaleByScheduleState",
-    "TraceState",
     "lars",
 ]

@@ -38,23 +38,6 @@ class LionState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_lion_state(state: OptState) -> ScaleByLionState:
-    """Narrow `OptState` from `scale_by_lion` to `ScaleByLionState`.
-
-    Args:
-        state: State returned by `scale_by_lion`.
-
-    Returns:
-        `ScaleByLionState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `ScaleByLionState`.
-    """
-    if isinstance(state, ScaleByLionState):
-        return state
-    raise TypeError(f"Expected ScaleByLionState, got {type(state)!r}")
-
-
 def lion(
     learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
@@ -62,7 +45,7 @@ def lion(
     mu_dtype: DTypeLike = None,
     weight_decay: ScalarOrSchedule = 1e-3,
     mask: MaskOrFn = None,
-) -> GradientTransformation:
+) -> GradientTransformation[LionState]:
     """Create the Lion (EvoLved Sign Momentum) optimizer.
 
     Args:
@@ -90,7 +73,7 @@ def lion(
             Initialized `LionState`.
         """
         return LionState(
-            lion_state=_as_lion_state(lion_tx.init(params)),
+            lion_state=lion_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -110,12 +93,13 @@ def lion(
             Tuple of `(transformed_updates, new_lion_state)`.
 
         Raises:
+            TypeError: If `state` is not a `LionState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError("`params` must be provided to `lion` update.")
         if not isinstance(state, LionState):
-            state = init_fn(params)
+            raise TypeError(f"Expected LionState in lion, got {type(state)!r}.")
 
         count = state.scale_state.count
         sign_updates, next_lion = lion_tx.update(updates, state.lion_state, params)
@@ -124,7 +108,7 @@ def lion(
         )
         new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, LionState(
-            lion_state=_as_lion_state(next_lion),
+            lion_state=next_lion,
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
@@ -133,7 +117,5 @@ def lion(
 
 __all__ = [
     "LionState",
-    "ScaleByLionState",
-    "ScaleByScheduleState",
     "lion",
 ]

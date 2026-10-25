@@ -12,15 +12,14 @@ from zero_optax._types import (
     Updates,
 )
 from zero_optax.base import (
-    EmptyState,
     GradientTransformation,
     OptState,
     ScaleByScheduleState,
 )
-from zero_optax.optimizers.adam import _as_adam_state
 from zero_optax.transform import (
     AddDecayedWeightsState,
     ScaleByAdamState,
+    ScaleByTrustRatioState,
     add_decayed_weights,
     scale_by_adam,
     scale_by_learning_rate,
@@ -48,7 +47,7 @@ def lamb(
     eps_root: float = 0.0,
     weight_decay: ScalarOrSchedule = 0.0,
     mask: MaskOrFn = None,
-) -> GradientTransformation:
+) -> GradientTransformation[LambState]:
     """Create the LAMB optimizer.
 
     Args:
@@ -78,7 +77,7 @@ def lamb(
             Initialized `LambState`.
         """
         return LambState(
-            adam_state=_as_adam_state(adam_tx.init(params)),
+            adam_state=adam_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -98,22 +97,25 @@ def lamb(
             Tuple of `(transformed_updates, new_lamb_state)`.
 
         Raises:
+            TypeError: If `state` is not a `LambState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError("`params` must be provided to `lamb` update.")
         if not isinstance(state, LambState):
-            state = init_fn(params)
+            raise TypeError(f"Expected LambState in lamb, got {type(state)!r}.")
 
         count = state.scale_state.count
         adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
         decayed_updates, _ = wd_tx.update(
             adam_updates, AddDecayedWeightsState(count=count), params
         )
-        trusted_updates, _ = trust_tx.update(decayed_updates, EmptyState(), params)
+        trusted_updates, _ = trust_tx.update(
+            decayed_updates, ScaleByTrustRatioState(), params
+        )
         new_updates, _ = lr_tx.update(trusted_updates, state.scale_state, params)
         return new_updates, LambState(
-            adam_state=_as_adam_state(next_adam),
+            adam_state=next_adam,
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
@@ -122,7 +124,5 @@ def lamb(
 
 __all__ = [
     "LambState",
-    "ScaleByAdamState",
-    "ScaleByScheduleState",
     "lamb",
 ]

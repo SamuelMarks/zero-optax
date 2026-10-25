@@ -5,19 +5,40 @@ from __future__ import annotations
 import inspect
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import NamedTuple, Protocol, Union, runtime_checkable
+from dataclasses import dataclass
+from typing import Protocol, Union, runtime_checkable
 
-from zero_optax._tree import asarray
+from typing_extensions import ParamSpec, TypeGuard
+
+from zero_optax._tree import (
+    _coerce_pytree_child,
+    asarray,
+    cos,
+    floor,
+    maximum,
+    minimum,
+    power,
+    where,
+)
 from zero_optax._types import (
+    ArrayLikeProtocol,
     DTypeLike,
     MaskOrFn,
     Params,
+    PyTree,
     ScalarOrSchedule,
     Schedule,
     Tensor,
+    ToListArrayProtocol,
     Updates,
 )
-from zero_optax.base import GradientTransformation, OptState
+from zero_optax.base import (
+    EmptyState,
+    GradientTransformation,
+    OptState,
+    _as_count_tensor,
+    _OptStateDataclassBase,
+)
 
 
 @runtime_checkable
@@ -75,6 +96,9 @@ HyperparamArg = Union[
 ]
 
 
+P = ParamSpec("P")
+
+
 class OptimizerFactory(Protocol):
     """Protocol for a wrapped optimizer factory accepting schedules or scalars."""
 
@@ -84,7 +108,7 @@ class OptimizerFactory(Protocol):
         /,
         *args: HyperparamArg,
         **kwargs: HyperparamArg,
-    ) -> GradientTransformation:
+    ) -> GradientTransformation[OptState]:
         """Construct a `GradientTransformation` from hyperparameters.
 
         Args:
@@ -98,49 +122,59 @@ class OptimizerFactory(Protocol):
         ...
 
 
-class AdamwFn(Protocol):
-    """Structural protocol matching `adamw` signature for `inject_hyperparams`."""
+def _is_optimizer_factory(
+    fn: Callable[P, GradientTransformation[OptState]],
+) -> TypeGuard[OptimizerFactory]:
+    """Narrow a generic optimizer factory callable `Callable[P, GradientTransformation]` to `OptimizerFactory`.
 
-    def __call__(
-        self,
-        learning_rate: ScalarOrSchedule,
-        b1: float = 0.9,
-        b2: float = 0.999,
-        eps: float = 1e-8,
-        eps_root: float = 0.0,
-        mu_dtype: DTypeLike = None,
-        weight_decay: ScalarOrSchedule = 1e-4,
-        mask: MaskOrFn = None,
-        *,
-        nesterov: bool = False,
-    ) -> GradientTransformation:
-        """Construct an AdamW `GradientTransformation`.
+    Args:
+        fn: Optimizer factory callable.
 
-        Args:
-            learning_rate: Learning rate or schedule.
-            b1: First moment decay.
-            b2: Second moment decay.
-            eps: Denominator epsilon.
-            eps_root: Square-root epsilon.
-            mu_dtype: First moment dtype.
-            weight_decay: Weight decay strength or schedule.
-            mask: Weight decay mask.
-            nesterov: Whether to use Nesterov momentum.
-
-        Returns:
-            Constructed `GradientTransformation`.
-        """
-        ...
+    Returns:
+        True if `fn` is callable.
+    """
+    return callable(fn)
 
 
-SgdFn = Callable[
-    [ScalarOrSchedule, Union[float, None], bool, DTypeLike],
-    GradientTransformation,
-]
-InnerFactoryType = Union[OptimizerFactory, SgdFn, AdamwFn]
+def _coerce_hyperparams_dict(val: PyTree) -> dict[str, float | int | Tensor]:
+    """Coerce a deserialized hyperparameters mapping into `dict[str, float | int | Tensor]`.
+
+    Args:
+        val: Raw hyperparameters mapping.
+
+    Returns:
+        Typed hyperparameters dictionary.
+    """
+    if not isinstance(val, Mapping):
+        return {}
+    out: dict[str, float | int | Tensor] = {}
+    for k, v in val.items():
+        out[str(k)] = (
+            v
+            if isinstance(v, (int, float, Tensor))
+            else asarray(
+                v if isinstance(v, (ArrayLikeProtocol, ToListArrayProtocol)) else 0.0
+            )
+        )
+    return out
 
 
-class InjectHyperparamsState(NamedTuple):
+def _coerce_hyperparams_states_dict(val: PyTree) -> dict[str, OptState]:
+    """Coerce a deserialized hyperparameter states mapping into `dict[str, OptState]`.
+
+    Args:
+        val: Raw hyperparameter states mapping.
+
+    Returns:
+        Typed hyperparameter states dictionary.
+    """
+    if not isinstance(val, Mapping):
+        return {}
+    return {str(k): _coerce_pytree_child(v) for k, v in val.items()}
+
+
+@dataclass(frozen=True)
+class InjectHyperparamsState(_OptStateDataclassBase):
     """State for `inject_hyperparams` transformations.
 
     Attributes:
@@ -152,9 +186,40 @@ class InjectHyperparamsState(NamedTuple):
     count: Tensor
     hyperparams: dict[str, float | int | Tensor]
     inner_state: OptState
+    _fields: tuple[str, ...] = ("count", "hyperparams", "inner_state")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'hyperparams'`, and `'inner_state'`.
+        """
+        return {
+            "count": self.count,
+            "hyperparams": dict(self.hyperparams),
+            "inner_state": self.inner_state,
+        }
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> InjectHyperparamsState:
+        """Construct `InjectHyperparamsState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, hyperparams, inner_state)`.
+
+        Returns:
+            Reconstructed `InjectHyperparamsState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            hyperparams=_coerce_hyperparams_dict(items[1]),
+            inner_state=items[2] if len(items) > 2 else EmptyState(),
+        )
 
 
-class InjectStatefulHyperparamsState(NamedTuple):
+@dataclass(frozen=True)
+class InjectStatefulHyperparamsState(_OptStateDataclassBase):
     """State for `inject_stateful_hyperparams` transformations.
 
     Attributes:
@@ -168,20 +233,43 @@ class InjectStatefulHyperparamsState(NamedTuple):
     hyperparams: dict[str, float | int | Tensor]
     hyperparams_states: dict[str, OptState]
     inner_state: OptState
+    _fields: tuple[str, ...] = (
+        "count",
+        "hyperparams",
+        "hyperparams_states",
+        "inner_state",
+    )
 
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
 
-def _step_to_float(step: int | float | Tensor) -> float:
-    """Convert an integer, float, or scalar Tensor step to a Python float.
+        Returns:
+            Dictionary with `'count'`, `'hyperparams'`, `'hyperparams_states'`, and `'inner_state'`.
+        """
+        return {
+            "count": self.count,
+            "hyperparams": dict(self.hyperparams),
+            "hyperparams_states": dict(self.hyperparams_states),
+            "inner_state": self.inner_state,
+        }
 
-    Args:
-        step: Step count value.
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> InjectStatefulHyperparamsState:
+        """Construct `InjectStatefulHyperparamsState` from a sequence of field values.
 
-    Returns:
-        Floating-point step representation.
-    """
-    if isinstance(step, Tensor):
-        return float(step.item())
-    return float(step)
+        Args:
+            iterable: Sequence containing `(count, hyperparams, hyperparams_states, inner_state)`.
+
+        Returns:
+            Reconstructed `InjectStatefulHyperparamsState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            hyperparams=_coerce_hyperparams_dict(items[1]),
+            hyperparams_states=_coerce_hyperparams_states_dict(items[2]),
+            inner_state=items[3] if len(items) > 3 else EmptyState(),
+        )
 
 
 def constant_schedule(value: float | int) -> Schedule:
@@ -193,16 +281,16 @@ def constant_schedule(value: float | int) -> Schedule:
     Returns:
         A callable schedule mapping `step` to `value`.
     """
-    const_val = float(value)
+    const_val = asarray(float(value))
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the constant schedule at `step`.
 
         Args:
             step: Current training step count (unused).
 
         Returns:
-            Constant value `value`.
+            Constant Tensor `value`.
         """
         del step
         return const_val
@@ -227,25 +315,24 @@ def join_schedules(
         A composite schedule callable switching sub-schedules at `boundaries`.
     """
 
-    def schedule(step: int | Tensor) -> float | Tensor:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the active sub-schedule for `step`.
 
         Args:
             step: Global training step count.
 
         Returns:
-            Scheduled value from the active segment.
+            Scheduled Tensor value from the active segment.
         """
-        step_f = _step_to_float(step)
-        output: float | Tensor = schedules[0](step)
+        step_t = asarray(step, dtype=float)
+        output: Tensor = asarray(schedules[0](step_t))
         for boundary, sub_schedule in zip(boundaries, schedules[1:]):
-            if step_f >= float(boundary):
-                rel_step = (
-                    step - boundary
-                    if isinstance(step, Tensor)
-                    else int(step_f - float(boundary))
-                )
-                output = sub_schedule(rel_step)
+            b_t = asarray(float(boundary))
+            output = where(
+                step_t >= b_t,
+                asarray(sub_schedule(step_t - b_t)),
+                output,
+            )
         return output
 
     return schedule
@@ -268,22 +355,26 @@ def linear_schedule(
     Returns:
         A callable schedule implementing the linear interpolation.
     """
+    init_t = asarray(float(init_value))
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the linear schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Linearly interpolated scalar value.
+            Linearly interpolated Tensor value.
         """
-        step_f = _step_to_float(step)
-        if step_f < float(transition_begin) or transition_steps <= 0:
-            return float(init_value)
-        step_val = min(step_f - float(transition_begin), float(transition_steps))
-        frac = step_val / float(transition_steps)
-        return float(init_value + (end_value - init_value) * frac)
+        if transition_steps <= 0:
+            return init_t
+        step_t = asarray(step, dtype=float)
+        clamped = minimum(
+            maximum(step_t - float(transition_begin), 0.0),
+            float(transition_steps),
+        )
+        frac = clamped / float(transition_steps)
+        return init_t + (float(end_value) - float(init_value)) * frac
 
     return schedule
 
@@ -307,22 +398,29 @@ def polynomial_schedule(
     Returns:
         A callable schedule implementing the polynomial transition.
     """
+    init_t = asarray(float(init_value))
+    poly_power = float(power)
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the polynomial schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Polynomially interpolated scalar value.
+            Polynomially interpolated Tensor value.
         """
-        step_f = _step_to_float(step)
-        if step_f < float(transition_begin) or transition_steps <= 0:
-            return float(init_value)
-        step_val = min(step_f - float(transition_begin), float(transition_steps))
-        p = step_val / float(transition_steps)
-        return float((init_value - end_value) * ((1.0 - p) ** power) + end_value)
+        if transition_steps <= 0:
+            return init_t
+        step_t = asarray(step, dtype=float)
+        clamped = minimum(
+            maximum(step_t - float(transition_begin), 0.0),
+            float(transition_steps),
+        )
+        p = clamped / float(transition_steps)
+        return (float(init_value) - float(end_value)) * (
+            (1.0 - p) ** poly_power
+        ) + float(end_value)
 
     return schedule
 
@@ -348,30 +446,31 @@ def exponential_decay(
     Returns:
         A callable schedule implementing exponential decay.
     """
+    init_t = asarray(float(init_value))
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the exponential decay schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Exponentially decayed scalar learning rate.
+            Exponentially decayed Tensor learning rate.
         """
         if transition_steps <= 0 or decay_rate <= 0.0:
-            return float(init_value)
-        step_f = _step_to_float(step)
-        if step_f < float(transition_begin):
-            return float(init_value)
-        p = (step_f - float(transition_begin)) / float(transition_steps)
+            return init_t
+        step_t = asarray(step, dtype=float)
+        rel = maximum(step_t - float(transition_begin), 0.0)
+        p = rel / float(transition_steps)
         if staircase:
-            p = float(math.floor(p))
-        val = float(init_value) * math.pow(decay_rate, p)
+            p = floor(p)
+        val = float(init_value) * power(float(decay_rate), p)
         if end_value is not None:
             if decay_rate < 1.0:
-                return max(val, float(end_value))
-            return min(val, float(end_value))
-        return val
+                val = maximum(val, float(end_value))
+            else:
+                val = minimum(val, float(end_value))
+        return where(step_t < float(transition_begin), init_t, val)
 
     return schedule
 
@@ -394,21 +493,21 @@ def cosine_decay_schedule(
         A callable schedule implementing cosine decay.
     """
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the cosine decay schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Cosine-decayed scalar learning rate.
+            Cosine-decayed Tensor learning rate.
         """
-        eff_decay = max(1, decay_steps)
-        step_f = min(max(0.0, _step_to_float(step)), float(eff_decay))
-        cosine_decay = 0.5 * (1.0 + math.cos(math.pi * step_f / float(eff_decay)))
-        cosine_decay = cosine_decay**exponent
-        decayed = (1.0 - alpha) * cosine_decay + alpha
-        return float(init_value * decayed)
+        eff_decay = float(max(1, decay_steps))
+        step_t = minimum(maximum(asarray(step, dtype=float), 0.0), eff_decay)
+        cosine_decay = 0.5 * (1.0 + cos(math.pi * step_t / eff_decay))
+        cosine_decay = power(maximum(cosine_decay, 0.0), float(exponent))
+        decayed = (1.0 - float(alpha)) * cosine_decay + float(alpha)
+        return float(init_value) * decayed
 
     return schedule
 
@@ -428,22 +527,24 @@ def warmup_constant_schedule(
     Returns:
         A callable schedule implementing warmup followed by a constant plateau.
     """
+    peak_t = asarray(float(peak_value))
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the warmup constant schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Scheduled learning rate at `step`.
+            Scheduled learning rate Tensor at `step`.
         """
-        step_f = _step_to_float(step)
-        if warmup_steps > 0 and step_f < float(warmup_steps):
-            return float(
-                init_value + (peak_value - init_value) * (step_f / float(warmup_steps))
-            )
-        return float(peak_value)
+        if warmup_steps <= 0:
+            return peak_t
+        step_t = asarray(step, dtype=float)
+        warm_val = float(init_value) + (float(peak_value) - float(init_value)) * (
+            step_t / float(warmup_steps)
+        )
+        return where(step_t < float(warmup_steps), warm_val, peak_t)
 
     return schedule
 
@@ -516,36 +617,22 @@ def warmup_exponential_decay_schedule(
     Returns:
         A callable schedule implementing warmup + exponential decay.
     """
-
-    def schedule(step: int | Tensor) -> float:
-        """Evaluate the warmup exponential decay schedule at `step`.
-
-        Args:
-            step: Current training step count.
-
-        Returns:
-            Scheduled learning rate at `step`.
-        """
-        step_f = _step_to_float(step)
-        if warmup_steps > 0 and step_f < float(warmup_steps):
-            return float(
-                init_value + (peak_value - init_value) * (step_f / float(warmup_steps))
-            )
-        p = (step_f - float(warmup_steps) - float(transition_begin)) / float(
-            transition_steps
-        )
-        if p < 0.0:
-            return float(peak_value)
-        if staircase:
-            p = float(math.floor(p))
-        val = float(peak_value) * math.pow(decay_rate, p)
-        if end_value is not None:
-            if decay_rate < 1.0:
-                return max(val, float(end_value))
-            return min(val, float(end_value))
-        return val
-
-    return schedule
+    schedules = [
+        linear_schedule(
+            init_value=init_value,
+            end_value=peak_value,
+            transition_steps=warmup_steps,
+        ),
+        exponential_decay(
+            init_value=peak_value,
+            transition_steps=transition_steps,
+            decay_rate=decay_rate,
+            transition_begin=transition_begin,
+            staircase=staircase,
+            end_value=end_value,
+        ),
+    ]
+    return join_schedules(schedules, [warmup_steps])
 
 
 def piecewise_constant_schedule(
@@ -562,22 +649,25 @@ def piecewise_constant_schedule(
         A callable schedule implementing piecewise constant step drops.
     """
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the piecewise constant schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Scaled learning rate after applying all crossed boundary multipliers.
+            Scaled Tensor learning rate after applying all crossed boundary multipliers.
         """
-        val = float(init_value)
+        val = asarray(float(init_value))
         if boundaries_and_scales is None:
             return val
-        step_f = _step_to_float(step)
+        step_t = asarray(step, dtype=float)
         for boundary, scale_factor in sorted(boundaries_and_scales.items()):
-            if step_f >= float(boundary):
-                val *= float(scale_factor)
+            val = where(
+                step_t >= float(boundary),
+                val * float(scale_factor),
+                val,
+            )
         return val
 
     return schedule
@@ -625,34 +715,36 @@ def piecewise_interpolate_schedule(
         cur_val = cur_val * float(scale_factor)
         values.append(cur_val)
 
-    def schedule(step: int | Tensor) -> float:
+    def schedule(step: int | Tensor) -> Tensor:
         """Evaluate the piecewise interpolated schedule at `step`.
 
         Args:
             step: Current training step count.
 
         Returns:
-            Interpolated learning rate at `step`.
+            Interpolated Tensor learning rate at `step`.
         """
         if not sorted_items:
-            return float(init_value)
+            return asarray(float(init_value))
 
-        step_f = _step_to_float(step)
-        if step_f < 0.0:
-            return values[0]
+        step_t = asarray(step, dtype=float)
+        out = asarray(values[-1])
 
         for idx in range(len(boundaries) - 1):
             b_start = float(boundaries[idx])
             b_end = float(boundaries[idx + 1])
-            if b_start <= step_f < b_end:
-                if interpolate_type == "none" or b_end <= b_start:
-                    return values[idx]
-                pct = (step_f - b_start) / (b_end - b_start)
+            v_start = asarray(values[idx])
+            if interpolate_type == "none" or b_end <= b_start:
+                seg_val = v_start
+            else:
+                pct = (step_t - b_start) / (b_end - b_start)
                 if interpolate_type == "cosine":
-                    pct = 0.5 * (1.0 - math.cos(math.pi * pct))
-                return float(values[idx] + pct * (values[idx + 1] - values[idx]))
+                    pct = 0.5 * (1.0 - cos(math.pi * pct))
+                seg_val = values[idx] + pct * (values[idx + 1] - values[idx])
+            in_seg = (step_t >= b_start) & (step_t < b_end)
+            out = where(in_seg, seg_val, out)
 
-        return values[-1]
+        return where(step_t < 0.0, asarray(values[0]), out)
 
     return schedule
 
@@ -778,10 +870,10 @@ def sgdr_schedule(
 
 
 def _call_factory_with_bound_args(
-    inner_factory: InnerFactoryType,
+    inner_factory: OptimizerFactory,
     sig: inspect.Signature,
     call_args: Mapping[str, HyperparamArg],
-) -> GradientTransformation:
+) -> GradientTransformation[OptState]:
     """Invoke `inner_factory` reconstructing positional and keyword arguments from `sig`.
 
     Args:
@@ -800,8 +892,7 @@ def _call_factory_with_bound_args(
             kw_args[param_name] = val
         else:
             pos_args.append(val)
-    factory_fn: OptimizerFactory = inner_factory
-    return factory_fn(pos_args[0], *pos_args[1:], **kw_args)
+    return inner_factory(pos_args[0], *pos_args[1:], **kw_args)
 
 
 def _format_hparam_value(
@@ -866,7 +957,7 @@ def _resolve_hyperparams_and_states(
 
 
 def inject_hyperparams(
-    inner_factory: InnerFactoryType | None,
+    inner_factory: Callable[P, GradientTransformation[OptState]] | None,
     static_args: str | Iterable[str] = (),
     hyperparam_dtype: DTypeLike = None,
 ) -> OptimizerFactory | None:
@@ -885,7 +976,7 @@ def inject_hyperparams(
     Raises:
         ValueError: If `static_args` contains names not in `inner_factory`'s signature.
     """
-    if inner_factory is None:
+    if inner_factory is None or not _is_optimizer_factory(inner_factory):
         return None
     static_set: set[str] = (
         {static_args} if isinstance(static_args, str) else set(static_args)
@@ -903,7 +994,7 @@ def inject_hyperparams(
         /,
         *args: HyperparamArg,
         **kwargs: HyperparamArg,
-    ) -> GradientTransformation:
+    ) -> GradientTransformation[InjectHyperparamsState]:
         """Instantiate the wrapped transformation with dynamic hyperparameter tracking.
 
         Args:
@@ -955,9 +1046,14 @@ def inject_hyperparams(
 
             Returns:
                 Tuple of `(transformed_updates, new_inject_state)`.
+
+            Raises:
+                TypeError: If `state` is not an `InjectHyperparamsState`.
             """
             if not isinstance(state, InjectHyperparamsState):
-                state = init_fn(updates)
+                raise TypeError(
+                    f"Expected InjectHyperparamsState in inject_hyperparams, got {type(state)!r}."
+                )
             count = state.count
             hparams: dict[str, float | int | Tensor] = {
                 k: _format_hparam_value(v, hyperparam_dtype)
@@ -989,7 +1085,7 @@ def inject_hyperparams(
 
 
 def inject_stateful_hyperparams(
-    inner_factory: InnerFactoryType | None,
+    inner_factory: Callable[P, GradientTransformation[OptState]] | None,
     static_args: str | Iterable[str] = (),
     hyperparam_dtype: DTypeLike = None,
 ) -> OptimizerFactory | None:
@@ -1008,7 +1104,7 @@ def inject_stateful_hyperparams(
     Raises:
         ValueError: If `static_args` contains names not in `inner_factory`'s signature.
     """
-    if inner_factory is None:
+    if inner_factory is None or not _is_optimizer_factory(inner_factory):
         return None
     static_set: set[str] = (
         {static_args} if isinstance(static_args, str) else set(static_args)
@@ -1026,7 +1122,7 @@ def inject_stateful_hyperparams(
         /,
         *args: HyperparamArg,
         **kwargs: HyperparamArg,
-    ) -> GradientTransformation:
+    ) -> GradientTransformation[InjectStatefulHyperparamsState]:
         """Instantiate the stateful hyperparameter-injected transformation.
 
         Args:
@@ -1079,9 +1175,14 @@ def inject_stateful_hyperparams(
 
             Returns:
                 Tuple of `(transformed_updates, new_stateful_inject_state)`.
+
+            Raises:
+                TypeError: If `state` is not an `InjectStatefulHyperparamsState`.
             """
             if not isinstance(state, InjectStatefulHyperparamsState):
-                state = init_fn(updates)
+                raise TypeError(
+                    f"Expected InjectStatefulHyperparamsState in inject_stateful_hyperparams, got {type(state)!r}."
+                )
             count = state.count
             hparams: dict[str, float | int | Tensor] = {
                 k: _format_hparam_value(v, hyperparam_dtype)

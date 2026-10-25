@@ -11,12 +11,14 @@ import pytest
 
 import zero_optax
 from scripts.check_compliance import verify_snapshot_v028
+from zero_optax import combine
 
 SNAPSHOT_PATH = Path(__file__).parent / "optax_api_snapshot.json"
 with SNAPSHOT_PATH.open("r", encoding="utf-8") as _f:
-    SNAPSHOT: dict[str, list[dict[str, str | int | float | bool | None]]] = json.load(
-        _f
-    )["root"]
+    FULL_SNAPSHOT: dict[
+        str, dict[str, list[dict[str, str | int | float | bool | None]]]
+    ] = json.load(_f)
+SNAPSHOT = FULL_SNAPSHOT["root"]
 
 
 def get_exported_functions(module: ModuleType) -> dict[str, FunctionType]:
@@ -40,22 +42,27 @@ def get_exported_functions(module: ModuleType) -> dict[str, FunctionType]:
     return funcs
 
 
-def test_api_parity_v028_snapshot() -> None:
-    """Assert 100% signature parity against `ml-ecosystem-snapshots` `optax_v0.2.8.json`."""
-    errors = verify_snapshot_v028()
-    assert errors == [], "Snapshot v0.2.8 mismatches: " + "; ".join(errors)
+def _compare_module_against_snapshot(
+    module: ModuleType,
+    section_snap: dict[str, list[dict[str, str | int | float | bool | None]]],
+) -> list[str]:
+    """Compare all exported functions in `module` against `section_snap`.
 
+    Args:
+        module: Module whose exported functions are inspected.
+        section_snap: Snapshot dictionary mapping function names to parameter lists.
 
-def test_api_parity_local_snapshot() -> None:
-    """Assert parameter names and defaults match `tests/optax_api_snapshot.json`."""
-    z_funcs = get_exported_functions(zero_optax)
+    Returns:
+        List of mismatch descriptions.
+    """
+    z_funcs = get_exported_functions(module)
     mismatches: list[str] = []
 
     for fname, z_obj in z_funcs.items():
-        if fname not in SNAPSHOT or inspect.isclass(z_obj):
+        if fname not in section_snap or inspect.isclass(z_obj):
             continue
 
-        optax_params = SNAPSHOT[fname]
+        optax_params = section_snap[fname]
         z_sig = inspect.signature(z_obj)
 
         z_params_list: list[dict[str, str | int | float | bool | None]] = []
@@ -100,6 +107,42 @@ def test_api_parity_local_snapshot() -> None:
                 mismatches.append(
                     f"{fname}: default val mismatch for {zp['name']} ({zp['default']} != {op['default']})"
                 )
+    return mismatches
+
+
+def test_api_parity_v028_snapshot() -> None:
+    """Assert 100% signature parity against `ml-ecosystem-snapshots` `optax_v0.2.8.json`."""
+    errors = verify_snapshot_v028()
+    assert errors == [], "Snapshot v0.2.8 mismatches: " + "; ".join(errors)
+
+
+def test_api_parity_local_snapshot() -> None:
+    """Assert parameter names, defaults, submodules, and `*State` classes match `tests/optax_api_snapshot.json`."""
+    submodules: dict[str, ModuleType] = {
+        "root": zero_optax,
+        "losses": zero_optax.losses,
+        "schedules": zero_optax.schedules,
+        "optimizers": zero_optax.optimizers,
+        "combine": combine,
+    }
+    mismatches: list[str] = []
+    for section_name, mod in submodules.items():
+        if section_name in FULL_SNAPSHOT:
+            mismatches.extend(
+                _compare_module_against_snapshot(mod, FULL_SNAPSHOT[section_name])
+            )
+
+    root_vars = dict(inspect.getmembers(zero_optax))
+    state_count = 0
+    for name in zero_optax.__all__:
+        if name.endswith("State") and name != "OptState" and name in root_vars:
+            cls_obj = root_vars[name]
+            assert inspect.isclass(cls_obj), f"{name} should be a class"
+            assert "_fields" in dict(inspect.getmembers(cls_obj)), (
+                f"{name} must define _fields"
+            )
+            state_count += 1
+    assert state_count >= 25
 
     if mismatches:
         pytest.fail("API Parity Mismatches found: " + "; ".join(mismatches))

@@ -17,7 +17,6 @@ from zero_optax.base import (
     OptState,
     ScaleByScheduleState,
 )
-from zero_optax.optimizers.adam import _as_adam_state
 from zero_optax.transform import (
     AddDecayedWeightsState,
     ScaleByAdamState,
@@ -50,7 +49,7 @@ def adamw(
     mask: MaskOrFn = None,
     *,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[AdamwState]:
     """Create the AdamW optimizer (Adam with decoupled weight decay).
 
     Args:
@@ -88,7 +87,7 @@ def adamw(
             Initialized `AdamwState`.
         """
         return AdamwState(
-            adam_state=_as_adam_state(adam_tx.init(params)),
+            adam_state=adam_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -108,12 +107,13 @@ def adamw(
             Tuple of `(transformed_updates, new_adamw_state)`.
 
         Raises:
+            TypeError: If `state` is not an `AdamwState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError("`params` must be provided to `adamw` update.")
         if not isinstance(state, AdamwState):
-            state = init_fn(params)
+            raise TypeError(f"Expected AdamwState in adamw, got {type(state)!r}.")
 
         count = state.scale_state.count
         adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
@@ -122,7 +122,7 @@ def adamw(
         )
         new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, AdamwState(
-            adam_state=_as_adam_state(next_adam),
+            adam_state=next_adam,
             scale_state=ScaleByScheduleState(count=count + 1),
         )
 
@@ -131,7 +131,5 @@ def adamw(
 
 __all__ = [
     "AdamwState",
-    "ScaleByAdamState",
-    "ScaleByScheduleState",
     "adamw",
 ]

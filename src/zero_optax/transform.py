@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from zero_optax._tree import (
@@ -22,6 +24,7 @@ from zero_optax._types import (
     DTypeLike,
     MaskOrFn,
     Params,
+    PyTree,
     ScalarOrSchedule,
     Schedule,
     Tensor,
@@ -29,12 +32,13 @@ from zero_optax._types import (
     Updates,
 )
 from zero_optax.base import (
-    EmptyState,
     GradientTransformation,
     OptState,
     ScaleByScheduleState,
     ScaleState,
     TraceState,
+    _as_count_tensor,
+    _OptStateDataclassBase,
 )
 
 
@@ -48,7 +52,8 @@ class ScaleByRssState(NamedTuple):
     sum_of_squares: Updates
 
 
-class ScaleByAdamState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByAdamState(_OptStateDataclassBase):
     """State holding step count and first/second moment estimates for Adam/Yogi.
 
     Attributes:
@@ -60,9 +65,32 @@ class ScaleByAdamState(NamedTuple):
     count: Tensor
     mu: Updates
     nu: Updates
+    _fields: tuple[str, ...] = ("count", "mu", "nu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'mu'`, and `'nu'`.
+        """
+        return {"count": self.count, "mu": self.mu, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByAdamState:
+        """Construct `ScaleByAdamState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByAdamState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), mu=items[1], nu=items[2])
 
 
-class ScaleByBeliefState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByBeliefState(_OptStateDataclassBase):
     """State holding step count, first moment, and central second moment for AdaBelief.
 
     Attributes:
@@ -74,9 +102,32 @@ class ScaleByBeliefState(NamedTuple):
     count: Tensor
     mu: Updates
     nu: Updates
+    _fields: tuple[str, ...] = ("count", "mu", "nu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'mu'`, and `'nu'`.
+        """
+        return {"count": self.count, "mu": self.mu, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByBeliefState:
+        """Construct `ScaleByBeliefState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByBeliefState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), mu=items[1], nu=items[2])
 
 
-class ScaleByLionState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByLionState(_OptStateDataclassBase):
     """State holding momentum estimate for Lion optimizer.
 
     Attributes:
@@ -86,6 +137,28 @@ class ScaleByLionState(NamedTuple):
 
     count: Tensor
     mu: Updates
+    _fields: tuple[str, ...] = ("count", "mu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'` and `'mu'`.
+        """
+        return {"count": self.count, "mu": self.mu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByLionState:
+        """Construct `ScaleByLionState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu)`.
+
+        Returns:
+            Reconstructed `ScaleByLionState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), mu=items[1])
 
 
 class ScaleByRmsState(NamedTuple):
@@ -98,7 +171,8 @@ class ScaleByRmsState(NamedTuple):
     nu: Updates
 
 
-class ScaleByRmsWithCountState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByRmsWithCountState(_OptStateDataclassBase):
     """State holding step count and second moment for bias-corrected RMSProp.
 
     Attributes:
@@ -108,6 +182,28 @@ class ScaleByRmsWithCountState(NamedTuple):
 
     count: Tensor
     nu: Updates
+    _fields: tuple[str, ...] = ("count", "nu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'` and `'nu'`.
+        """
+        return {"count": self.count, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByRmsWithCountState:
+        """Construct `ScaleByRmsWithCountState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByRmsWithCountState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), nu=items[1])
 
 
 class ScaleByRStdDevState(NamedTuple):
@@ -122,7 +218,8 @@ class ScaleByRStdDevState(NamedTuple):
     nu: Updates
 
 
-class ScaleByRStdDevWithCountState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByRStdDevWithCountState(_OptStateDataclassBase):
     """State holding step count and first/second moments for bias-corrected centered RMSProp.
 
     Attributes:
@@ -134,9 +231,32 @@ class ScaleByRStdDevWithCountState(NamedTuple):
     count: Tensor
     mu: Updates
     nu: Updates
+    _fields: tuple[str, ...] = ("count", "mu", "nu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'mu'`, and `'nu'`.
+        """
+        return {"count": self.count, "mu": self.mu, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByRStdDevWithCountState:
+        """Construct `ScaleByRStdDevWithCountState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByRStdDevWithCountState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), mu=items[1], nu=items[2])
 
 
-class ScaleByNovogradState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByNovogradState(_OptStateDataclassBase):
     """State holding step count, first moment, and per-leaf second moment for NovoGrad.
 
     Attributes:
@@ -148,9 +268,32 @@ class ScaleByNovogradState(NamedTuple):
     count: Tensor
     mu: Updates
     nu: Updates
+    _fields: tuple[str, ...] = ("count", "mu", "nu")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'mu'`, and `'nu'`.
+        """
+        return {"count": self.count, "mu": self.mu, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByNovogradState:
+        """Construct `ScaleByNovogradState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByNovogradState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), mu=items[1], nu=items[2])
 
 
-class AddDecayedWeightsState(NamedTuple):
+@dataclass(frozen=True)
+class AddDecayedWeightsState(_OptStateDataclassBase):
     """State holding optional step count for `add_decayed_weights`.
 
     Attributes:
@@ -158,13 +301,35 @@ class AddDecayedWeightsState(NamedTuple):
     """
 
     count: Tensor
+    _fields: tuple[str, ...] = ("count",)
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`.
+        """
+        return {"count": self.count}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> AddDecayedWeightsState:
+        """Construct `AddDecayedWeightsState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count,)`.
+
+        Returns:
+            Reconstructed `AddDecayedWeightsState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]))
 
 
 class ScaleByTrustRatioState(NamedTuple):
     """Empty state for `scale_by_trust_ratio`."""
 
 
-def scale(step_size: float | int | Tensor) -> GradientTransformation:
+def scale(step_size: float | int | Tensor) -> GradientTransformation[ScaleState]:
     """Scale gradient updates by a constant factor `step_size`.
 
     Args:
@@ -219,7 +384,9 @@ def scale(step_size: float | int | Tensor) -> GradientTransformation:
     return GradientTransformation(init_fn, update_fn)
 
 
-def scale_by_schedule(step_size_fn: Schedule) -> GradientTransformation:
+def scale_by_schedule(
+    step_size_fn: Schedule,
+) -> GradientTransformation[ScaleByScheduleState]:
     """Scale gradient updates using a time-varying schedule function `step_size_fn`.
 
     Args:
@@ -255,9 +422,16 @@ def scale_by_schedule(step_size_fn: Schedule) -> GradientTransformation:
 
         Returns:
             Tuple of `(scaled_updates, new_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByScheduleState`.
         """
         del params
-        count = state.count if isinstance(state, ScaleByScheduleState) else asarray(0)
+        if not isinstance(state, ScaleByScheduleState):
+            raise TypeError(
+                f"Expected ScaleByScheduleState in scale_by_schedule, got {type(state)!r}."
+            )
+        count = state.count
         step_size = step_size_fn(count)
 
         def _scale_leaf(u: TensorLeaf) -> TensorLeaf:
@@ -279,7 +453,7 @@ def scale_by_schedule(step_size_fn: Schedule) -> GradientTransformation:
 def scale_by_learning_rate(
     learning_rate: ScalarOrSchedule,
     flip_sign: bool = True,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByScheduleState | ScaleState]:
     """Scale updates by `learning_rate` (negated for gradient descent when `flip_sign=True`).
 
     Args:
@@ -311,7 +485,7 @@ def trace(
     decay: float,
     nesterov: bool = False,
     accumulator_dtype: DTypeLike = None,
-) -> GradientTransformation:
+) -> GradientTransformation[TraceState]:
     """Compute a trace (momentum) of past gradient updates.
 
     Args:
@@ -348,11 +522,14 @@ def trace(
 
         Returns:
             Tuple of `(momentum_updates, new_trace_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `TraceState`.
         """
         del params
-        prev_trace = (
-            state.trace if isinstance(state, TraceState) else tree_zeros_like(updates)
-        )
+        if not isinstance(state, TraceState):
+            raise TypeError(f"Expected TraceState in trace, got {type(state)!r}.")
+        prev_trace = state.trace
 
         def _update_trace(g: TensorLeaf, t: TensorLeaf) -> TensorLeaf:
             """Compute new trace `g + decay * t`.
@@ -401,7 +578,7 @@ def trace(
 def scale_by_rss(
     initial_accumulator_value: float = 0.1,
     eps: float = 1e-7,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByRssState]:
     """Rescale updates by the root of the sum of all squared gradients to date.
 
     Args:
@@ -449,10 +626,15 @@ def scale_by_rss(
 
         Returns:
             Tuple of `(rescaled_updates, new_rss_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByRssState`.
         """
         del params
         if not isinstance(state, ScaleByRssState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByRssState in scale_by_rss, got {type(state)!r}."
+            )
         prev_rss = state.sum_of_squares
 
         def _add_sq(rss: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
@@ -501,7 +683,7 @@ def scale_by_adam(
     mu_dtype: DTypeLike = None,
     *,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByAdamState]:
     """Rescale updates according to the Adam algorithm.
 
     Args:
@@ -545,10 +727,15 @@ def scale_by_adam(
 
         Returns:
             Tuple of `(adam_updates, new_adam_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByAdamState`.
         """
         del params
         if not isinstance(state, ScaleByAdamState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByAdamState in scale_by_adam, got {type(state)!r}."
+            )
         count_inc = state.count + 1
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
@@ -634,7 +821,7 @@ def scale_by_belief(
     eps_root: float = 1e-16,
     *,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByBeliefState]:
     """Rescale updates according to the AdaBelief algorithm.
 
     Args:
@@ -677,10 +864,15 @@ def scale_by_belief(
 
         Returns:
             Tuple of `(belief_updates, new_belief_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByBeliefState`.
         """
         del params
         if not isinstance(state, ScaleByBeliefState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByBeliefState in scale_by_belief, got {type(state)!r}."
+            )
         count_inc = state.count + 1
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
@@ -751,7 +943,7 @@ def scale_by_lion(
     b1: float = 0.9,
     b2: float = 0.99,
     mu_dtype: DTypeLike = None,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByLionState]:
     """Rescale updates according to the Lion (EvoLved Sign Momentum) algorithm.
 
     Args:
@@ -791,10 +983,15 @@ def scale_by_lion(
 
         Returns:
             Tuple of `(sign_updates, new_lion_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByLionState`.
         """
         del params
         if not isinstance(state, ScaleByLionState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByLionState in scale_by_lion, got {type(state)!r}."
+            )
         count_inc = state.count + 1
 
         def _sign_step(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
@@ -839,7 +1036,7 @@ def scale_by_rms(
     initial_scale: float = 0.0,
     eps_in_sqrt: bool = True,
     bias_correction: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByRmsState | ScaleByRmsWithCountState]:
     """Rescale updates by the root of the exponentially moving average of squared gradients.
 
     Args:
@@ -893,10 +1090,15 @@ def scale_by_rms(
 
         Returns:
             Tuple of `(rescaled_updates, new_rms_state)`.
+
+        Raises:
+            TypeError: If `state` is not a valid RMS state.
         """
         del params
         if not isinstance(state, (ScaleByRmsState, ScaleByRmsWithCountState)):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByRmsState or ScaleByRmsWithCountState in scale_by_rms, got {type(state)!r}."
+            )
         if isinstance(state, ScaleByRmsWithCountState):
             prev_nu = state.nu
             count_inc = state.count + 1
@@ -952,7 +1154,7 @@ def scale_by_stddev(
     initial_scale: float = 0.0,
     eps_in_sqrt: bool = True,
     bias_correction: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByRStdDevState | ScaleByRStdDevWithCountState]:
     """Rescale updates by the root of the centered exponentially moving variance of gradients.
 
     Args:
@@ -1007,10 +1209,15 @@ def scale_by_stddev(
 
         Returns:
             Tuple of `(rescaled_updates, new_stddev_state)`.
+
+        Raises:
+            TypeError: If `state` is not a valid centered RMS state.
         """
         del params
         if not isinstance(state, (ScaleByRStdDevState, ScaleByRStdDevWithCountState)):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByRStdDevState or ScaleByRStdDevWithCountState in scale_by_stddev, got {type(state)!r}."
+            )
         if isinstance(state, ScaleByRStdDevWithCountState):
             prev_mu = state.mu
             prev_nu = state.nu
@@ -1090,7 +1297,7 @@ def scale_by_yogi(
     eps: float = 1e-3,
     eps_root: float = 0.0,
     initial_accumulator_value: float = 1e-6,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByAdamState]:
     """Rescale updates according to the Yogi additive adaptive variance algorithm.
 
     Args:
@@ -1145,10 +1352,15 @@ def scale_by_yogi(
 
         Returns:
             Tuple of `(yogi_updates, new_yogi_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByAdamState`.
         """
         del params
         if not isinstance(state, ScaleByAdamState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByAdamState in scale_by_yogi, got {type(state)!r}."
+            )
         count_inc = state.count + 1
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
@@ -1215,7 +1427,7 @@ def scale_by_novograd(
     eps_root: float = 0.0,
     weight_decay: ScalarOrSchedule = 0.0,
     mu_dtype: DTypeLike = None,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByNovogradState]:
     """Rescale updates using layer-wise adaptive second moments according to NovoGrad.
 
     Args:
@@ -1273,13 +1485,16 @@ def scale_by_novograd(
             Tuple of `(novograd_updates, new_novograd_state)`.
 
         Raises:
+            TypeError: If `state` is not a `ScaleByNovogradState`.
             ValueError: If `params` is None when required.
         """
         if not isinstance(state, ScaleByNovogradState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected ScaleByNovogradState in scale_by_novograd, got {type(state)!r}."
+            )
         wd_val = evaluate_schedule(weight_decay, state.count)
         if params is None:
-            if float(asarray(wd_val).item()) != 0.0:
+            if callable(weight_decay) or weight_decay != 0.0:
                 raise ValueError(
                     "`params` must be provided to `scale_by_novograd` when weight_decay != 0."
                 )
@@ -1339,7 +1554,7 @@ def scale_by_trust_ratio(
     min_norm: float = 0.0,
     trust_coefficient: float = 1.0,
     eps: float = 0.0,
-) -> GradientTransformation:
+) -> GradientTransformation[ScaleByTrustRatioState]:
     """Scale updates by the layer-wise ratio of parameter norm to update norm.
 
     Args:
@@ -1351,23 +1566,23 @@ def scale_by_trust_ratio(
         A `GradientTransformation` scaling each leaf by its trust ratio.
     """
 
-    def init_fn(params: Params) -> EmptyState:
+    def init_fn(params: Params) -> ScaleByTrustRatioState:
         """Initialize empty state for `scale_by_trust_ratio`.
 
         Args:
             params: Model parameters PyTree (unused).
 
         Returns:
-            An `EmptyState` instance.
+            A `ScaleByTrustRatioState` instance.
         """
         del params
-        return EmptyState()
+        return ScaleByTrustRatioState()
 
     def update_fn(
         updates: Updates,
         state: OptState,
         params: Params | None = None,
-    ) -> tuple[Updates, EmptyState]:
+    ) -> tuple[Updates, ScaleByTrustRatioState]:
         """Scale each gradient leaf by `trust_coefficient * ||param|| / (||update|| + eps)`.
 
         Args:
@@ -1376,7 +1591,7 @@ def scale_by_trust_ratio(
             params: Current model parameters PyTree (required).
 
         Returns:
-            Tuple of `(scaled_updates, EmptyState())`.
+            Tuple of `(scaled_updates, ScaleByTrustRatioState())`.
 
         Raises:
             ValueError: If `params` is None.
@@ -1408,7 +1623,7 @@ def scale_by_trust_ratio(
             safe_ratio = where(zero_norm, 1.0, trust_ratio)
             return u_t * safe_ratio
 
-        return tree_map(_scale_leaf, updates, params), EmptyState()
+        return tree_map(_scale_leaf, updates, params), ScaleByTrustRatioState()
 
     return GradientTransformation(init_fn, update_fn)
 
@@ -1416,7 +1631,7 @@ def scale_by_trust_ratio(
 def add_decayed_weights(
     weight_decay: ScalarOrSchedule = 0.0,
     mask: MaskOrFn = None,
-) -> GradientTransformation:
+) -> GradientTransformation[AddDecayedWeightsState]:
     """Add parameter weight decay (`weight_decay * params`) to gradient updates.
 
     Args:
@@ -1456,13 +1671,18 @@ def add_decayed_weights(
             Tuple of `(decayed_updates, new_state)`.
 
         Raises:
+            TypeError: If `state` is not an `AddDecayedWeightsState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError(
                 "`params` must be provided to `add_decayed_weights` update."
             )
-        count = state.count if isinstance(state, AddDecayedWeightsState) else asarray(0)
+        if not isinstance(state, AddDecayedWeightsState):
+            raise TypeError(
+                f"Expected AddDecayedWeightsState in add_decayed_weights, got {type(state)!r}."
+            )
+        count = state.count
         wd = evaluate_schedule(weight_decay, count)
 
         def _add_wd(u: TensorLeaf, p: TensorLeaf) -> TensorLeaf:

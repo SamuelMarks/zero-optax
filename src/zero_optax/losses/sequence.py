@@ -7,15 +7,16 @@ from zero_optax._tree import (
     abs_tensor,
     arange,
     asarray,
+    concatenate,
     exp,
     expand_dims,
-    log,
     log1p,
+    log_softmax,
     maximum,
     ones,
-    reduce_max,
     reduce_sum,
     squeeze,
+    stack,
     take_along_axis,
     where,
 )
@@ -73,10 +74,7 @@ def ctc_loss_with_forward_probs(
     batch_size, max_time, _ = logits_t.shape
     _, max_label_len = labels_t.shape
 
-    c = reduce_max(logits_t, axis=-1, keepdims=True)
-    log_probs = (
-        logits_t - c - log(reduce_sum(exp(logits_t - c), axis=-1, keepdims=True))
-    )
+    log_probs = log_softmax(logits_t, axis=-1)
 
     n_plus_1_idx = expand_dims(arange(max_label_len + 1), 0)
     phi_prev = where(
@@ -88,14 +86,9 @@ def ctc_loss_with_forward_probs(
 
     if max_label_len > 1:
         same_adj = asarray(labels_t[:, :-1] == labels_t[:, 1:])
-        repeat_cols = [
-            where(same_adj[:, n : n + 1], 1.0, 0.0) for n in range(max_label_len - 1)
-        ] + [ones((batch_size, 1)) * 0.0]
-        repeat_flags = asarray(
-            [
-                [float(repeat_cols[n][b, 0].item()) for n in range(max_label_len)]
-                for b in range(batch_size)
-            ]
+        repeat_flags = concatenate(
+            [where(same_adj, 1.0, 0.0), ones((batch_size, 1)) * 0.0],
+            axis=-1,
         )
     else:
         repeat_flags = ones((batch_size, max_label_len)) * 0.0
@@ -114,21 +107,13 @@ def ctc_loss_with_forward_probs(
             prev_phi_orig[:, 1:],
             emit_prev + log_eps_t * repeat_flags,
         )
-        prev_phi_prefix = where(
-            n_plus_1_idx[:, :-1] == 0,
-            prev_phi_orig[:, :1],
-            prev_phi_tail[:, :-1] if max_label_len > 1 else prev_phi_orig[:, :1],
-        )
         if max_label_len > 1:
-            prefix_cols = [prev_phi_orig[:, 0]] + [
-                prev_phi_tail[:, n] for n in range(max_label_len - 1)
-            ]
-            prev_phi_prefix = asarray(
-                [
-                    [prefix_cols[n][b] for n in range(max_label_len)]
-                    for b in range(batch_size)
-                ]
+            prev_phi_prefix = concatenate(
+                [prev_phi_orig[:, :1], prev_phi_tail[:, :-1]],
+                axis=-1,
             )
+        else:
+            prev_phi_prefix = prev_phi_orig[:, :1]
 
         next_emit = _logaddexp(prev_phi_prefix + lp_emit, emit_prev + lp_emit)
 
@@ -137,15 +122,7 @@ def ctc_loss_with_forward_probs(
             prev_phi_tail + lp_blank,
             emit_prev + lp_blank + log_eps_t * (1.0 - repeat_flags),
         )
-        phi_cols = [next_phi_0[:, 0]] + [
-            next_phi_tail[:, n] for n in range(max_label_len)
-        ]
-        next_phi = asarray(
-            [
-                [phi_cols[n][b] for n in range(max_label_len + 1)]
-                for b in range(batch_size)
-            ]
-        )
+        next_phi = concatenate([next_phi_0, next_phi_tail], axis=-1)
 
         emit_prev = pad_t * emit_prev + (1.0 - pad_t) * next_emit
         phi_prev = pad_t * prev_phi_orig + (1.0 - pad_t) * next_phi
@@ -155,18 +132,14 @@ def ctc_loss_with_forward_probs(
     if max_time > 0:
         last_phi_0 = phi_steps[-1][:, :1]
         last_phi_tail = _logaddexp(phi_steps[-1][:, 1:], emit_steps[-1])
-        last_cols = [last_phi_0[:, 0]] + [
-            last_phi_tail[:, n] for n in range(max_label_len)
-        ]
-        last_phi = asarray(
-            [
-                [last_cols[n][b] for n in range(max_label_len + 1)]
-                for b in range(batch_size)
-            ]
-        )
+        last_phi = concatenate([last_phi_0, last_phi_tail], axis=-1)
         phi_steps[-1] = last_phi
+        phi_out = stack(phi_steps, axis=0)
+        emit_out = stack(emit_steps, axis=0)
     else:
         last_phi = phi_prev
+        phi_out = ones((0, batch_size, max_label_len + 1)) * 0.0
+        emit_out = ones((0, batch_size, max_label_len)) * 0.0
 
     valid_label_counts = reduce_sum(1.0 - label_pad_t, axis=-1, keepdims=True)
     target_indices = asarray(valid_label_counts, dtype=int)
@@ -177,8 +150,8 @@ def ctc_loss_with_forward_probs(
 
     return (
         per_seq_loss,
-        asarray(phi_steps),
-        asarray(emit_steps),
+        phi_out,
+        emit_out,
     )
 
 

@@ -18,9 +18,9 @@ test = [
     "mypy",
     "ruff",
     "interrogate",
+    "build",
     "chex",
     "jax",
-    "jax[cuda12] ; sys_platform == 'linux'",
     "jaxlib",
     "absl-py",
     "numpy",
@@ -34,11 +34,21 @@ allow-direct-references = true
 files = ["requirements.txt"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = [
+    "src",
+    "../ml-switcheroo-ir/src",
+    "../ml-switcheroo-compiler/src",
+    "../ml-ecosystem-snapshots/src",
+    "../zero-jax/src",
+    "../zero-chex/src",
+    "../zero-flax/src",
+    "../zero-orbax/src",
+    "../zero-grain/src",
+]
 addopts = "--cov=zero_optax --cov=scripts --cov-branch --cov-report=term-missing --cov-fail-under=100"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "D", "RUF"]
@@ -49,6 +59,17 @@ convention = "google"
 
 [tool.mypy]
 python_version = "3.10"
+mypy_path = [
+    "src",
+    "../ml-switcheroo-ir/src",
+    "../ml-switcheroo-compiler/src",
+    "../ml-ecosystem-snapshots/src",
+    "../zero-jax/src",
+    "../zero-chex/src",
+    "../zero-flax/src",
+    "../zero-orbax/src",
+    "../zero-grain/src",
+]
 strict = true
 follow_imports = "silent"
 ignore_missing_imports = true
@@ -63,7 +84,6 @@ warn_return_any = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
-disable_error_code = ["assignment"]
 
 [tool.coverage.run]
 branch = true
@@ -76,7 +96,7 @@ show_missing = true
 exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
-    '\.\.\.',
+    '^\s*\.\.\.\s*$',
 ]
 
 [tool.interrogate]

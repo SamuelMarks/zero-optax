@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import zero_chex
+
 from zero_optax._tree import (
     abs_tensor,
     asarray,
@@ -12,8 +14,10 @@ from zero_optax._tree import (
     maximum,
     reduce_sum,
     sqrt,
-    where,
     zeros_like,
+)
+from zero_optax._tree import (
+    where as where_select,
 )
 from zero_optax._types import ArrayLike, Tensor
 
@@ -26,14 +30,18 @@ def squared_error(
 
     Args:
         predictions: Predicted values tensor of arbitrary shape.
-        targets: Ground-truth target values broadcastable to `predictions`. If
+        targets: Ground-truth target values matching `predictions`. If
             None, targets are assumed to be zeros matching `predictions`.
 
     Returns:
         Element-wise squared error `(predictions - targets) ** 2`.
     """
     p = asarray(predictions)
-    t = zeros_like(p) if targets is None else asarray(targets)
+    if targets is None:
+        t = zeros_like(p)
+    else:
+        t = asarray(targets)
+        zero_chex.assert_equal_shape([p, t])
     diff = p - t
     return diff * diff
 
@@ -79,7 +87,7 @@ def huber_loss(
     t = zeros_like(p) if targets is None else asarray(targets)
     d = asarray(delta)
     diff = abs_tensor(p - t)
-    return where(diff < d, 0.5 * diff * diff, d * (diff - 0.5 * d))
+    return where_select(diff < d, 0.5 * diff * diff, d * (diff - 0.5 * d))
 
 
 def log_cosh(
@@ -128,33 +136,23 @@ def cosine_similarity(
     b = asarray(targets)
     if where is not None:
         w = asarray(where)
-        a = where_mask(w, a, 0.0)
-        b = where_mask(w, b, 0.0)
+        a = where_select(w, a, 0.0)
+        b = where_select(w, b, 0.0)
     a_norm2 = reduce_sum(a * a, axis=axis, keepdims=True)
     b_norm2 = reduce_sum(b * b, axis=axis, keepdims=True)
     eps_t = asarray(epsilon)
     a_norm = sqrt(maximum(a_norm2, eps_t))
     b_norm = sqrt(maximum(b_norm2, eps_t))
-    a_unit = where_mask(a_norm > 0.0, a / where_mask(a_norm > 0.0, a_norm, 1.0), 0.0)
-    b_unit = where_mask(b_norm > 0.0, b / where_mask(b_norm > 0.0, b_norm, 1.0), 0.0)
+    a_unit = where_select(
+        a_norm > 0.0, a / where_select(a_norm > 0.0, a_norm, 1.0), 0.0
+    )
+    b_unit = where_select(
+        b_norm > 0.0, b / where_select(b_norm > 0.0, b_norm, 1.0), 0.0
+    )
     prod = a_unit * b_unit
     if where is not None:
-        prod = where_mask(asarray(where), prod, 0.0)
+        prod = where_select(asarray(where), prod, 0.0)
     return reduce_sum(prod, axis=axis)
-
-
-def where_mask(condition: ArrayLike, x: ArrayLike, y: ArrayLike) -> Tensor:
-    """Helper wrapping `where` to avoid name shadowing when parameter is named `where`.
-
-    Args:
-        condition: Boolean condition tensor.
-        x: Value when condition is True.
-        y: Value when condition is False.
-
-    Returns:
-        Selected Tensor.
-    """
-    return where(condition, x, y)
 
 
 def cosine_distance(
@@ -188,5 +186,4 @@ __all__ = [
     "l2_loss",
     "log_cosh",
     "squared_error",
-    "where_mask",
 ]

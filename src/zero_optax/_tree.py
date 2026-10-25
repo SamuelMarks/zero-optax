@@ -3,23 +3,36 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from typing import Union
 
 from ml_switcheroo_compiler import ops
 from ml_switcheroo_compiler.core.dtype import DType
 from ml_switcheroo_compiler.core.tensor import Tensor, as_tensor_obj
 from ml_switcheroo_compiler.ops.shape import indexing
 from ml_switcheroo_compiler.ops.shape import reshape as shape_reshape
+from typing_extensions import TypeGuard
+from zero_jax._types import ArrayLikeSpec as JaxArrayLikeSpec
+from zero_orbax.types import PyTree as OrbaxPyTree
 
 from zero_optax._types import (
     ArrayLike,
+    ArrayLikeProtocol,
+    CustomMappingChild,
+    CustomMappingPyTreeProtocol,
     DTypeLike,
+    DTypeLikeProtocol,
+    MappableDataclassProtocol,
     MaskOrFn,
     MaskTree,
+    NamedTupleProtocol,
     Params,
     PyTree,
     ScalarOrSchedule,
+    ShapeDtypeProtocol,
     TensorLeaf,
+    ToListArrayProtocol,
     Updates,
+    VariableLeafProtocol,
 )
 
 INF: float = float("inf")
@@ -37,8 +50,11 @@ def _resolve_dtype(dtype: DTypeLike) -> DType | None:
     """
     if dtype is None or isinstance(dtype, DType):
         return dtype
+    if isinstance(dtype, DTypeLikeProtocol):
+        return DType(dtype.name)
     if isinstance(dtype, str):
-        return DType(dtype)
+        clean = dtype[6:] if dtype.startswith("DType.") else dtype
+        return DType(clean)
     if dtype is bool:
         return DType("bool")
     if dtype is float:
@@ -46,19 +62,90 @@ def _resolve_dtype(dtype: DTypeLike) -> DType | None:
     return DType.int32
 
 
+def _extract_array_dtype(
+    val: ArrayLikeProtocol | ToListArrayProtocol,
+    override_dtype: DTypeLike,
+) -> DType | None:
+    """Resolve the target `DType` for an `ArrayLikeProtocol` or `ToListArrayProtocol` value.
+
+    Args:
+        val: Array-like object with a `.dtype` property.
+        override_dtype: Optional explicit override dtype.
+
+    Returns:
+        Resolved `DType` or None.
+    """
+    if override_dtype is not None:
+        return _resolve_dtype(override_dtype)
+    raw_dt = val.dtype
+    if isinstance(raw_dt, DType):
+        return raw_dt
+    return _resolve_dtype(str(raw_dt) if raw_dt is not None else None)
+
+
+RawNestedScalar = Union[Tensor, int, float, bool, Sequence["RawNestedScalar"]]
+
+
+def _to_raw_array_input(
+    val: ArrayLike | JaxArrayLikeSpec | OrbaxPyTree,
+) -> RawNestedScalar:
+    """Recursively unwrap an `ArrayLike` into a `Tensor`, scalar, or nested sequence of scalars.
+
+    Args:
+        val: Input `ArrayLike` value.
+
+    Returns:
+        Unwrapped `Tensor`, scalar, or nested list of scalars.
+    """
+    if isinstance(val, (Tensor, int, float, bool)):
+        return val
+    if isinstance(val, Sequence) and not isinstance(val, (str, bytes)):
+        return [_to_raw_array_input(item) for item in val]
+    if isinstance(
+        val,
+        (
+            ArrayLikeProtocol,
+            ToListArrayProtocol,
+            ShapeDtypeProtocol,
+            VariableLeafProtocol,
+        ),
+    ):
+        return asarray(val)
+    return 0.0
+
+
 def asarray(val: ArrayLike, dtype: DTypeLike = None) -> Tensor:
     """Convert an ArrayLike value into an ml-switcheroo-compiler Tensor.
 
     Args:
-        val: Input tensor, scalar, or nested sequence of numbers.
+        val: Input tensor, scalar, variable leaf, `zero_jax` array, or nested sequence.
         dtype: Optional target data type.
 
     Returns:
         Converted Tensor instance.
     """
+    if isinstance(val, VariableLeafProtocol):
+        val = val.value
     if isinstance(val, Tensor) and dtype is None:
         return val
-    return as_tensor_obj(ops.asarray(val, dtype=_resolve_dtype(dtype)))
+    if isinstance(val, ArrayLikeProtocol):
+        return as_tensor_obj(
+            ops.asarray(
+                _to_raw_array_input(val.tolist()),
+                dtype=_extract_array_dtype(val, dtype),
+            )
+        )
+    if isinstance(val, ToListArrayProtocol):
+        flat_list: list[int | float | bool] = [
+            float(x.real) if isinstance(x, complex) else x for x in val.to_list()
+        ]
+        flat_tensor = as_tensor_obj(
+            ops.asarray(flat_list, dtype=_extract_array_dtype(val, dtype))
+        )
+        return as_tensor_obj(shape_reshape.Reshape()(flat_tensor, val.shape))
+    return as_tensor_obj(
+        ops.asarray(_to_raw_array_input(val), dtype=_resolve_dtype(dtype))
+    )
 
 
 def zeros(shape: int | Sequence[int], dtype: DTypeLike = None) -> Tensor:
@@ -265,6 +352,69 @@ def sign(x: ArrayLike) -> Tensor:
     return as_tensor_obj(ops.sign(asarray(x)))
 
 
+def cos(x: ArrayLike) -> Tensor:
+    """Compute element-wise cosine.
+
+    Args:
+        x: Input tensor or scalar in radians.
+
+    Returns:
+        Element-wise cosine Tensor.
+    """
+    return as_tensor_obj(ops.cos(asarray(x)))
+
+
+def floor(x: ArrayLike) -> Tensor:
+    """Compute element-wise largest integer less than or equal to `x`.
+
+    Args:
+        x: Input tensor or scalar.
+
+    Returns:
+        Element-wise floor Tensor.
+    """
+    return as_tensor_obj(ops.floor(asarray(x)))
+
+
+def power(x: ArrayLike, exponent: ArrayLike) -> Tensor:
+    """Raise elements of `x` to powers from `exponent` element-wise.
+
+    Args:
+        x: Base tensor or scalar.
+        exponent: Exponent tensor or scalar.
+
+    Returns:
+        Element-wise `x ** exponent` Tensor.
+    """
+    return as_tensor_obj(ops.power(asarray(x), asarray(exponent)))
+
+
+def concatenate(tensors: Sequence[ArrayLike], axis: int = 0) -> Tensor:
+    """Join a sequence of tensors along an existing axis.
+
+    Args:
+        tensors: Non-empty sequence of tensors with matching shapes except in `axis`.
+        axis: The axis along which the tensors will be joined.
+
+    Returns:
+        Concatenated Tensor.
+    """
+    return as_tensor_obj(ops.concatenate([asarray(t) for t in tensors], axis=axis))
+
+
+def stack(tensors: Sequence[ArrayLike], axis: int = 0) -> Tensor:
+    """Join a sequence of tensors along a new axis.
+
+    Args:
+        tensors: Non-empty sequence of tensors with identical shapes.
+        axis: The axis in the result tensor along which the input tensors are stacked.
+
+    Returns:
+        Stacked Tensor.
+    """
+    return as_tensor_obj(ops.stack([asarray(t) for t in tensors], axis=axis))
+
+
 def sigmoid(x: ArrayLike) -> Tensor:
     """Compute numerically stable element-wise logistic sigmoid.
 
@@ -395,10 +545,131 @@ LeafFn1 = Callable[[TensorLeaf], TensorLeaf]
 LeafFn2 = Callable[[TensorLeaf, TensorLeaf], TensorLeaf]
 LeafFn3 = Callable[[TensorLeaf, TensorLeaf, TensorLeaf], TensorLeaf]
 LeafFn4 = Callable[[TensorLeaf, TensorLeaf, TensorLeaf, TensorLeaf], TensorLeaf]
+LeafFn = Union[LeafFn1, LeafFn2, LeafFn3, LeafFn4]
+
+
+def _is_leaf_fn1(fn: LeafFn, n_extra: int) -> TypeGuard[LeafFn1]:
+    """Narrow `fn` to `LeafFn1` when `n_extra == 0`.
+
+    Args:
+        fn: Leaf transformation callable.
+        n_extra: Number of extra leaf arguments beyond the first.
+
+    Returns:
+        True if `n_extra == 0`.
+    """
+    del fn
+    return n_extra == 0
+
+
+def _is_leaf_fn2(fn: LeafFn, n_extra: int) -> TypeGuard[LeafFn2]:
+    """Narrow `fn` to `LeafFn2` when `n_extra == 1`.
+
+    Args:
+        fn: Leaf transformation callable.
+        n_extra: Number of extra leaf arguments beyond the first.
+
+    Returns:
+        True if `n_extra == 1`.
+    """
+    del fn
+    return n_extra == 1
+
+
+def _is_leaf_fn3(fn: LeafFn, n_extra: int) -> TypeGuard[LeafFn3]:
+    """Narrow `fn` to `LeafFn3` when `n_extra == 2`.
+
+    Args:
+        fn: Leaf transformation callable.
+        n_extra: Number of extra leaf arguments beyond the first.
+
+    Returns:
+        True if `n_extra == 2`.
+    """
+    del fn
+    return n_extra == 2
+
+
+def _is_leaf_fn4(fn: LeafFn, n_extra: int) -> TypeGuard[LeafFn4]:
+    """Narrow `fn` to `LeafFn4` when `n_extra == 3`.
+
+    Args:
+        fn: Leaf transformation callable.
+        n_extra: Number of extra leaf arguments beyond the first.
+
+    Returns:
+        True if `n_extra == 3`.
+    """
+    del fn
+    return n_extra == 3
+
+
+def _unwrap_leaf(leaf: TensorLeaf) -> TensorLeaf:
+    """Unwrap a `VariableLeafProtocol` leaf to its inner `Tensor` value if applicable.
+
+    Args:
+        leaf: Input leaf value.
+
+    Returns:
+        Unwrapped `Tensor` if `leaf` is a `VariableLeafProtocol`, otherwise `leaf`.
+    """
+    if isinstance(leaf, VariableLeafProtocol):
+        return asarray(leaf.value)
+    return leaf
+
+
+def _replace_variable_leaf(
+    leaf: VariableLeafProtocol,
+    new_val: PyTree,
+) -> VariableLeafProtocol:
+    """Create a new `VariableLeafProtocol` container of the same type holding `new_val`.
+
+    Args:
+        leaf: Original variable leaf container (`Param`, `BatchStat`, `LoRAParam`).
+        new_val: Replacement tensor or leaf value.
+
+    Returns:
+        New variable container of the same class wrapping `new_val`.
+    """
+    cls_type = type(leaf)
+    return cls_type(new_val)
+
+
+def _coerce_pytree_child(child: CustomMappingChild | MaskTree) -> PyTree:
+    """Narrow a child extracted from a `CustomMappingPyTreeProtocol` or `MappableDataclassProtocol` into a `PyTree`.
+
+    Args:
+        child: Child node extracted from a custom mapping or mappable dataclass.
+
+    Returns:
+        Validated `PyTree` node.
+    """
+    if isinstance(
+        child,
+        (
+            Tensor,
+            float,
+            int,
+            bool,
+            type(None),
+            ArrayLikeProtocol,
+            ToListArrayProtocol,
+            ShapeDtypeProtocol,
+            VariableLeafProtocol,
+            CustomMappingPyTreeProtocol,
+            MappableDataclassProtocol,
+        ),
+    ):
+        return child
+    if isinstance(child, tuple):
+        return tuple(_coerce_pytree_child(item) for item in child)
+    if isinstance(child, list):
+        return [_coerce_pytree_child(item) for item in child]
+    return None
 
 
 def _apply_leaf_fn(
-    fn: LeafFn1 | LeafFn2 | LeafFn3 | LeafFn4,
+    fn: LeafFn,
     first: TensorLeaf,
     rest_leaves: Sequence[TensorLeaf],
 ) -> TensorLeaf:
@@ -411,23 +682,132 @@ def _apply_leaf_fn(
 
     Returns:
         Transformed `TensorLeaf` value.
+
+    Raises:
+        ValueError: If `len(rest_leaves) > 3`.
     """
-    n_extra = len(rest_leaves)
-    if n_extra == 0:
-        fn1: LeafFn1 = fn
-        return fn1(first)
-    if n_extra == 1:
-        fn2: LeafFn2 = fn
-        return fn2(first, rest_leaves[0])
-    if n_extra == 2:
-        fn3: LeafFn3 = fn
-        return fn3(first, rest_leaves[0], rest_leaves[1])
-    fn4: LeafFn4 = fn
-    return fn4(first, rest_leaves[0], rest_leaves[1], rest_leaves[2])
+    u_first = _unwrap_leaf(first)
+    u_rest = [_unwrap_leaf(r) for r in rest_leaves]
+    n_extra = len(u_rest)
+    if _is_leaf_fn1(fn, n_extra):
+        res = fn(u_first)
+    elif _is_leaf_fn2(fn, n_extra):
+        res = fn(u_first, u_rest[0])
+    elif _is_leaf_fn3(fn, n_extra):
+        res = fn(u_first, u_rest[0], u_rest[1])
+    elif _is_leaf_fn4(fn, n_extra):
+        res = fn(u_first, u_rest[0], u_rest[1], u_rest[2])
+    else:
+        raise ValueError(
+            f"tree_map supports between 1 and 4 PyTrees, got {1 + n_extra}."
+        )
+    if (
+        isinstance(first, VariableLeafProtocol)
+        and res is not None
+        and not isinstance(res, VariableLeafProtocol)
+    ):
+        return _replace_variable_leaf(first, res)
+    return res
+
+
+def _rebuild_mapping(
+    template: Mapping[str, PyTree] | CustomMappingPyTreeProtocol,
+    result_dict: dict[str, PyTree],
+) -> PyTree:
+    """Reconstruct a mapping container matching `template` (`dict`, `State`, or `FrozenDict`).
+
+    Args:
+        template: Original mapping or custom mapping container.
+        result_dict: Mapped key-value dictionary.
+
+    Returns:
+        Reconstructed mapping container of the same type as `template`.
+    """
+    if (
+        isinstance(template, CustomMappingPyTreeProtocol)
+        and type(template).__name__ != "dict"
+    ):
+        cls_type = type(template)
+        return cls_type(result_dict)
+    return result_dict
+
+
+def _rebuild_sequence(
+    template: tuple[PyTree, ...] | list[PyTree],
+    items: list[PyTree],
+) -> PyTree:
+    """Reconstruct a list, tuple, or NamedTuple matching `template`'s container type.
+
+    Args:
+        template: Original sequence container (`list`, `tuple`, or `NamedTuple`).
+        items: Mapped child elements.
+
+    Returns:
+        Reconstructed sequence or `NamedTuple` instance.
+    """
+    if isinstance(template, list):
+        return list(items)
+    if isinstance(template, NamedTupleProtocol):
+        return template._make(items)
+    return tuple(items)
+
+
+def _extract_rest_seqs(
+    tree_len: int,
+    rest: Sequence[PyTree],
+) -> list[tuple[PyTree, ...] | list[PyTree]]:
+    """Validate that all `rest` items are sequences of length `tree_len`.
+
+    Args:
+        tree_len: Expected sequence length.
+        rest: Co-traversed PyTree sequences.
+
+    Returns:
+        List of validated sequence containers from `rest`.
+
+    Raises:
+        ValueError: If any element in `rest` is not a tuple/list of length `tree_len`.
+    """
+    rest_seqs: list[tuple[PyTree, ...] | list[PyTree]] = []
+    for r in rest:
+        if not isinstance(r, (tuple, list)) or len(r) != tree_len:
+            raise ValueError(
+                "PyTree structure mismatch: expected sequence of matching length."
+            )
+        rest_seqs.append(r)
+    return rest_seqs
+
+
+def _extract_leaf(node: PyTree) -> TensorLeaf:
+    """Validate that `node` is a leaf and return it as a `TensorLeaf`.
+
+    Args:
+        node: Co-traversed PyTree node expected to be a leaf.
+
+    Returns:
+        The leaf value.
+
+    Raises:
+        ValueError: If `node` is a Mapping, custom mapping, dataclass, tuple, or list container.
+    """
+    if isinstance(
+        node,
+        (
+            MappableDataclassProtocol,
+            CustomMappingPyTreeProtocol,
+            Mapping,
+            tuple,
+            list,
+        ),
+    ):
+        raise ValueError(
+            "PyTree structure mismatch: expected leaf node across all trees."
+        )
+    return node
 
 
 def tree_map(
-    fn: LeafFn1 | LeafFn2 | LeafFn3 | LeafFn4,
+    fn: LeafFn,
     tree: PyTree,
     *rest: PyTree,
 ) -> PyTree:
@@ -436,48 +816,85 @@ def tree_map(
     Args:
         fn: Callable taking 1 to 4 leaves (one per input tree) and returning a transformed leaf.
         tree: Primary PyTree structure.
-        *rest: Additional PyTrees with identical container structure.
+        *rest: Additional PyTrees with identical container structure (up to 3 extra trees).
 
     Returns:
         New PyTree with the same structure as `tree` and transformed leaves.
 
     Raises:
-        ValueError: If any PyTree in `rest` has a structure or length mismatch with `tree`.
+        ValueError: If any PyTree in `rest` has a structure or length mismatch with `tree`,
+            or if more than 4 PyTrees are passed.
     """
-    if isinstance(tree, Mapping):
+    return _tree_map_impl(fn, tree, rest)
+
+
+def _tree_map_impl(
+    fn: LeafFn,
+    tree: PyTree,
+    rest: Sequence[PyTree],
+) -> PyTree:
+    """Recursively traverse `tree` and `rest` and apply `fn` at the leaves.
+
+    Args:
+        fn: Leaf transformation callable taking `1 + len(rest)` arguments.
+        tree: Primary PyTree node.
+        rest: Sequence of co-traversed PyTree nodes.
+
+    Returns:
+        Transformed PyTree node matching `tree`.
+
+    Raises:
+        ValueError: If container structures or lengths do not match across `tree` and `rest`.
+    """
+    if isinstance(tree, MappableDataclassProtocol):
+        field_names = tree.__chex_mappable_fields__()
+        field_values = [_coerce_pytree_child(v) for v in tree.__chex_field_values__()]
+        primary_fields = dict(zip(field_names, field_values))
+        rest_field_maps: list[dict[str, PyTree]] = []
+        for r in rest:
+            if (
+                isinstance(r, MappableDataclassProtocol)
+                and r.__chex_mappable_fields__() == field_names
+            ):
+                r_vals = [_coerce_pytree_child(v) for v in r.__chex_field_values__()]
+                rest_field_maps.append(dict(zip(r.__chex_mappable_fields__(), r_vals)))
+            else:
+                raise ValueError(
+                    "PyTree structure mismatch: expected MappableDataclass with matching fields."
+                )
+        dc_result: dict[str, PyTree] = {}
+        for k in field_names:
+            other_vals = [rm[k] for rm in rest_field_maps]
+            dc_result[k] = _tree_map_impl(fn, primary_fields[k], other_vals)
+        dc_cls = type(tree)
+        return dc_cls(**dc_result)
+    if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
         result_dict: dict[str, PyTree] = {}
         tree_keys = set(tree.keys())
+        rest_maps: list[Mapping[str, PyTree] | CustomMappingPyTreeProtocol] = []
         for r in rest:
-            if not isinstance(r, Mapping) or set(r.keys()) != tree_keys:
+            if (
+                not isinstance(r, (Mapping, CustomMappingPyTreeProtocol))
+                or set(r.keys()) != tree_keys
+            ):
                 raise ValueError(
                     "PyTree structure mismatch: expected Mapping with matching keys."
                 )
-        for k, v in tree.items():
-            other_vals: list[PyTree] = [r[k] for r in rest if isinstance(r, Mapping)]
-            result_dict[k] = tree_map(fn, v, *other_vals)
-        return result_dict
+            rest_maps.append(r)
+        for k in tree:
+            other_vals = [_coerce_pytree_child(rm[k]) for rm in rest_maps]
+            result_dict[k] = _tree_map_impl(
+                fn, _coerce_pytree_child(tree[k]), other_vals
+            )
+        return _rebuild_mapping(tree, result_dict)
     if isinstance(tree, (tuple, list)):
         seq_items: list[PyTree] = []
-        tree_len = len(tree)
-        rest_seqs: list[tuple[PyTree, ...] | list[PyTree]] = []
-        for r in rest:
-            if not isinstance(r, (tuple, list)) or len(r) != tree_len:
-                raise ValueError(
-                    "PyTree structure mismatch: expected sequence of matching length."
-                )
-            rest_seqs.append(r)
+        rest_seqs = _extract_rest_seqs(len(tree), rest)
         for idx, item in enumerate(tree):
             other_items: list[PyTree] = [r_seq[idx] for r_seq in rest_seqs]
-            seq_items.append(tree_map(fn, item, *other_items))
-        return list(seq_items) if isinstance(tree, list) else tuple(seq_items)
-    for r in rest:
-        if isinstance(r, (Mapping, tuple, list)):
-            raise ValueError(
-                "PyTree structure mismatch: expected leaf node across all trees."
-            )
-    leaf_rest: list[TensorLeaf] = [
-        r for r in rest if not isinstance(r, (Mapping, tuple, list))
-    ]
+            seq_items.append(_tree_map_impl(fn, item, other_items))
+        return _rebuild_sequence(tree, seq_items)
+    leaf_rest: list[TensorLeaf] = [_extract_leaf(r) for r in rest]
     return _apply_leaf_fn(fn, tree, leaf_rest)
 
 
@@ -490,10 +907,15 @@ def tree_leaves(tree: PyTree) -> list[TensorLeaf]:
     Returns:
         Flat list of TensorLeaf values.
     """
-    if isinstance(tree, Mapping):
+    if isinstance(tree, MappableDataclassProtocol):
+        dc_leaves: list[TensorLeaf] = []
+        for v in tree.__chex_field_values__():
+            dc_leaves.extend(tree_leaves(_coerce_pytree_child(v)))
+        return dc_leaves
+    if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
         leaves: list[TensorLeaf] = []
-        for v in tree.values():
-            leaves.extend(tree_leaves(v))
+        for k in tree:
+            leaves.extend(tree_leaves(_coerce_pytree_child(tree[k])))
         return leaves
     if isinstance(tree, (tuple, list)):
         seq_leaves: list[TensorLeaf] = []
@@ -543,8 +965,9 @@ def tree_l2_norm(tree: PyTree, squared: bool = False) -> Tensor:
     leaves = tree_leaves(tree)
     total_sq: Tensor = asarray(0.0)
     for leaf in leaves:
-        if leaf is not None:
-            t = asarray(leaf)
+        unwrapped = _unwrap_leaf(leaf)
+        if unwrapped is not None:
+            t = asarray(unwrapped)
             total_sq = total_sq + reduce_sum(t * t)
     if squared:
         return total_sq
@@ -560,9 +983,10 @@ def leaf_l2_norm(x: TensorLeaf) -> Tensor:
     Returns:
         Scalar Tensor holding the L2 norm of `x`.
     """
-    if x is None:
+    unwrapped = _unwrap_leaf(x)
+    if unwrapped is None:
         return asarray(0.0)
-    t = asarray(x)
+    t = asarray(unwrapped)
     return sqrt(reduce_sum(t * t))
 
 
@@ -600,6 +1024,24 @@ def resolve_mask(mask: MaskOrFn, params: Params) -> MaskTree | None:
     return mask
 
 
+def _coerce_submask(val: PyTree | MaskTree) -> MaskTree:
+    """Coerce a child mask node extracted from a custom mapping into a `MaskTree`.
+
+    Args:
+        val: Extracted child mask node.
+
+    Returns:
+        Validated `MaskTree`.
+    """
+    if isinstance(val, (bool, VariableLeafProtocol, CustomMappingPyTreeProtocol)):
+        return val
+    if isinstance(val, tuple):
+        return tuple(_coerce_submask(item) for item in val)
+    if isinstance(val, list):
+        return [_coerce_submask(item) for item in val]
+    return bool(val)
+
+
 def apply_mask_tree(
     masked_tree: Updates,
     unmasked_tree: Updates,
@@ -615,25 +1057,40 @@ def apply_mask_tree(
     Returns:
         Combined PyTree respecting the mask.
     """
+    if isinstance(mask_tree, VariableLeafProtocol):
+        return masked_tree if bool(mask_tree.value) else unmasked_tree
     if isinstance(mask_tree, bool):
         return masked_tree if mask_tree else unmasked_tree
     if (
-        isinstance(mask_tree, Mapping)
-        and isinstance(masked_tree, Mapping)
-        and isinstance(unmasked_tree, Mapping)
+        isinstance(mask_tree, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(masked_tree, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(unmasked_tree, (Mapping, CustomMappingPyTreeProtocol))
     ):
-        return {
-            k: apply_mask_tree(masked_tree[k], unmasked_tree[k], mask_tree.get(k, True))
-            for k in masked_tree
-        }
+        mask_keys = set(mask_tree.keys())
+        return _rebuild_mapping(
+            masked_tree,
+            {
+                k: apply_mask_tree(
+                    _coerce_pytree_child(masked_tree[k]),
+                    _coerce_pytree_child(unmasked_tree[k]),
+                    _coerce_submask(_coerce_pytree_child(mask_tree[k]))
+                    if k in mask_keys
+                    else True,
+                )
+                for k in masked_tree
+            },
+        )
     if (
         isinstance(mask_tree, tuple)
         and isinstance(masked_tree, tuple)
         and isinstance(unmasked_tree, tuple)
     ):
-        return tuple(
-            apply_mask_tree(m_val, u_val, b_val)
-            for m_val, u_val, b_val in zip(masked_tree, unmasked_tree, mask_tree)
+        return _rebuild_sequence(
+            masked_tree,
+            [
+                apply_mask_tree(m_val, u_val, b_val)
+                for m_val, u_val, b_val in zip(masked_tree, unmasked_tree, mask_tree)
+            ],
         )
     if (
         isinstance(mask_tree, list)
@@ -695,6 +1152,64 @@ def logsumexp(
     return c_out + log(where(sum_exp == 0.0, 1.0, sum_exp))
 
 
+def log_softmax(
+    logits: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where_mask: ArrayLike | None = None,
+) -> Tensor:
+    """Compute numerically stable log-softmax along `axis` handling `-inf` and optional mask.
+
+    Args:
+        logits: Unnormalized log probabilities.
+        axis: Axis or axes along which the log-softmax is computed.
+        where_mask: Optional boolean mask indicating valid elements to include.
+
+    Returns:
+        Log-probabilities Tensor matching the shape of `logits`.
+    """
+    l_arr = asarray(logits)
+    if where_mask is not None:
+        w_arr = asarray(where_mask)
+        l_arr = where(w_arr, l_arr, NEG_INF)
+    c = reduce_max(l_arr, axis=axis, keepdims=True)
+    c_safe = where(abs_tensor(c) == INF, 0.0, c)
+    l_minus_c = where(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
+    exp_l_c = exp(l_minus_c)
+    if where_mask is not None:
+        exp_l_c = where(asarray(where_mask), exp_l_c, 0.0)
+    sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
+    logsumexp_val = log(where(sumexp == 0.0, 1.0, sumexp))
+    out = where(
+        abs_tensor(l_arr) == INF,
+        NEG_INF,
+        l_minus_c - logsumexp_val,
+    )
+    if where_mask is not None:
+        return where(asarray(where_mask), out, 0.0)
+    return out
+
+
+def softmax(
+    logits: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1,
+    where_mask: ArrayLike | None = None,
+) -> Tensor:
+    """Compute numerically stable softmax probabilities along `axis` with optional mask.
+
+    Args:
+        logits: Unnormalized log probabilities.
+        axis: Axis or axes along which the softmax is computed.
+        where_mask: Optional boolean mask indicating valid elements to include.
+
+    Returns:
+        Normalized probability distribution Tensor along `axis`.
+    """
+    probs = exp(log_softmax(logits, axis=axis, where_mask=where_mask))
+    if where_mask is not None:
+        return where(asarray(where_mask), probs, 0.0)
+    return probs
+
+
 def squeeze_axes(x: Tensor, axis: int | tuple[int, ...] | None) -> Tensor:
     """Remove specified singleton axes from a tensor after a `keepdims=True` reduction.
 
@@ -721,18 +1236,23 @@ __all__ = [
     "apply_mask_tree",
     "arange",
     "asarray",
+    "concatenate",
+    "cos",
     "evaluate_schedule",
     "exp",
     "expand_dims",
+    "floor",
     "full_like",
     "leaf_l2_norm",
     "log",
     "log1p",
+    "log_softmax",
     "logsumexp",
     "maximum",
     "minimum",
     "ones",
     "ones_like",
+    "power",
     "reduce_max",
     "reduce_mean",
     "reduce_sum",
@@ -741,9 +1261,11 @@ __all__ = [
     "safe_norm",
     "sigmoid",
     "sign",
+    "softmax",
     "sqrt",
     "squeeze",
     "squeeze_axes",
+    "stack",
     "take_along_axis",
     "tree_l2_norm",
     "tree_leaves",

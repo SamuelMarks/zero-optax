@@ -35,23 +35,6 @@ class AdamState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_adam_state(state: OptState) -> ScaleByAdamState:
-    """Narrow `OptState` from `scale_by_adam` to `ScaleByAdamState`.
-
-    Args:
-        state: State returned by `scale_by_adam` or `scale_by_yogi`.
-
-    Returns:
-        `ScaleByAdamState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `ScaleByAdamState`.
-    """
-    if isinstance(state, ScaleByAdamState):
-        return state
-    raise TypeError(f"Expected ScaleByAdamState, got {type(state)!r}")
-
-
 def adam(
     learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
@@ -61,7 +44,7 @@ def adam(
     mu_dtype: DTypeLike = None,
     *,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[AdamState]:
     """Create the Adam optimizer.
 
     Args:
@@ -96,7 +79,7 @@ def adam(
             Initialized `AdamState`.
         """
         return AdamState(
-            adam_state=_as_adam_state(adam_tx.init(params)),
+            adam_state=adam_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -114,13 +97,16 @@ def adam(
 
         Returns:
             Tuple of `(transformed_updates, new_adam_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `AdamState`.
         """
         if not isinstance(state, AdamState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected AdamState in adam, got {type(state)!r}.")
         adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
         new_updates, _ = lr_tx.update(adam_updates, state.scale_state, params)
         return new_updates, AdamState(
-            adam_state=_as_adam_state(next_adam),
+            adam_state=next_adam,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -129,7 +115,5 @@ def adam(
 
 __all__ = [
     "AdamState",
-    "ScaleByAdamState",
-    "ScaleByScheduleState",
     "adam",
 ]

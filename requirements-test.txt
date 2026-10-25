@@ -3,11 +3,10 @@ pytest-cov
 mypy
 ruff
 interrogate
+build
 chex
 jax
-jax[cuda12] ; sys_platform == 'linux'
 jaxlib
 absl-py
 numpy
 optax
-ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.4/ml_ecosystem_snapshots-0.0.4-py3-none-any.whl

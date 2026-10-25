@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
+import zero_chex
+
 from zero_optax._tree import (
-    INF,
-    NEG_INF,
-    abs_tensor,
     asarray,
-    exp,
-    log,
+    log_softmax,
     reduce_max,
     reduce_mean,
     reduce_sum,
@@ -57,29 +55,17 @@ def ranking_softmax_loss(
     """
     l_arr = asarray(logits)
     t_arr = asarray(labels)
+    zero_chex.assert_equal_shape([l_arr, t_arr])
+    zero_chex.assert_rank([l_arr, t_arr], [l_arr.ndim, l_arr.ndim])
 
     if where is not None:
-        w_mask = asarray(where)
-        t_arr = where_select(w_mask, t_arr, zeros_like(t_arr))
-        l_arr = where_select(w_mask, l_arr, NEG_INF)
+        t_arr = where_select(asarray(where), t_arr, zeros_like(t_arr))
 
     if weights is not None:
         t_arr = t_arr * asarray(weights)
 
-    c = reduce_max(l_arr, axis=-1, keepdims=True)
-    c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
-    l_shifted = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
-    exp_l = exp(l_shifted)
-    if where is not None:
-        exp_l = where_select(asarray(where), exp_l, 0.0)
-    sum_exp = reduce_sum(exp_l, axis=-1, keepdims=True)
-    log_norm = log(where_select(sum_exp == 0.0, 1.0, sum_exp))
-    log_softmax = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_shifted - log_norm)
-
-    per_item = where_select(t_arr == 0.0, 0.0, t_arr * log_softmax)
-    if where is not None:
-        per_item = where_select(asarray(where), per_item, 0.0)
-
+    log_probs = log_softmax(l_arr, axis=-1, where_mask=where)
+    per_item = where_select(t_arr == 0.0, 0.0, t_arr * log_probs)
     loss = -reduce_sum(per_item, axis=-1)
 
     if reduce_fn is None:

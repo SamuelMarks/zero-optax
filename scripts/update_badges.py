@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -59,7 +60,7 @@ def get_test_coverage(cov_json_path: Path | None = None, run_cmd: bool = True) -
     target_path = Path("coverage.json") if cov_json_path is None else cov_json_path
     if run_cmd:
         subprocess.run(
-            ["coverage", "json", "-o", str(target_path)],
+            [sys.executable, "-m", "coverage", "json", "-o", str(target_path)],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -105,26 +106,34 @@ def get_doc_coverage(src_dir: Path | None = None) -> float:
 
 
 def get_api_compliance(root_dir: Path | None = None) -> float:
-    """Read overall API compliance percentage from `*_TODO.md`.
+    """Read overall API compliance percentage from `*_TODO.md` or `SEMANTIC_PLAN.md`.
 
     Args:
-        root_dir: Directory containing `OPTAX_TODO.md` (defaults to current working directory).
+        root_dir: Directory containing `*_TODO.md` or `SEMANTIC_PLAN.md` (defaults to current working directory).
 
     Returns:
         API compliance percentage in `[0.0, 100.0]`.
     """
     base_dir = Path(".") if root_dir is None else root_dir
     todo_files = sorted(f for f in os.listdir(base_dir) if f.endswith("_TODO.md"))
-    if not todo_files:
+    if todo_files:
+        todo_path = base_dir / todo_files[0]
+        for line in todo_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("Overall Compliance:"):
+                raw_val = line.split(":", 1)[1].strip().replace("%", "")
+                try:
+                    return float(raw_val)
+                except ValueError:
+                    return 0.0
         return 0.0
-    todo_path = base_dir / todo_files[0]
-    for line in todo_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("Overall Compliance:"):
-            raw_val = line.split(":", 1)[1].strip().replace("%", "")
-            try:
-                return float(raw_val)
-            except ValueError:
-                return 0.0
+    plan_path = base_dir / "SEMANTIC_PLAN.md"
+    if plan_path.exists():
+        content = plan_path.read_text(encoding="utf-8")
+        checked = len(re.findall(r"- \[[xX]\]", content))
+        unchecked = len(re.findall(r"- \[ \]", content))
+        total = checked + unchecked
+        if total > 0:
+            return (checked / total) * 100.0
     return 0.0
 
 

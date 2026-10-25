@@ -205,6 +205,13 @@ def test_check_compliance_script(tmp_path: Path) -> None:
                                 {"name": "wrong_name", "kind": "KEYWORD_ONLY"},
                             ],
                         },
+                        {
+                            "api_path": "optax.schedules.constant_schedule",
+                            "name": "constant_schedule",
+                            "params": [
+                                {"name": "value", "kind": "POSITIONAL_OR_KEYWORD"},
+                            ],
+                        },
                     ],
                 }
             }
@@ -263,6 +270,12 @@ def test_update_badges_script(tmp_path: Path) -> None:
     assert update_badges.get_doc_coverage(undoc_src) == 0.0
 
     assert update_badges.get_api_compliance(tmp_path) == 0.0
+    empty_plan_dir = tmp_path / "empty_plan_dir"
+    empty_plan_dir.mkdir()
+    (empty_plan_dir / "SEMANTIC_PLAN.md").write_text(
+        f"# No checkboxes{NL}", encoding="utf-8"
+    )
+    assert update_badges.get_api_compliance(empty_plan_dir) == 0.0
     bad_todo = tmp_path / "TEST_TODO.md"
     bad_todo.write_text(f"Overall Compliance: invalid%{NL}", encoding="utf-8")
     assert update_badges.get_api_compliance(tmp_path) == 0.0
@@ -355,3 +368,13 @@ def test_lint_typing_and_docs_script(tmp_path: Path) -> None:
     )
     assert lint_typing_and_docs.main([str(bad_file)]) == 1
     assert lint_typing_and_docs.main([str(src_sub)]) == 1
+    assert (
+        lint_typing_and_docs.check_pyproject_mypy_config(tmp_path / "missing.toml")
+        == []
+    )
+    bad_toml = tmp_path / "pyproject.toml"
+    bad_toml.write_text(
+        f"[tool.mypy]{NL}disable_error_code = ['assignment']{NL}", encoding="utf-8"
+    )
+    assert len(lint_typing_and_docs.check_pyproject_mypy_config(bad_toml)) == 1
+    assert lint_typing_and_docs.main(["src"], pyproject_path=bad_toml) == 1

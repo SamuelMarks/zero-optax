@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -469,16 +470,25 @@ def test_dice_losses() -> None:
 
     s_pos = 1.0 / (1.0 + np.exp(-2.0))
     s_neg = 1.0 / (1.0 + np.exp(2.0))
-    expected_b_dice = 1.0 - (2.0 * s_pos + 1.0) / (s_pos + s_neg + 1.0 + 1.0)
+    expected_b_dice = 1.0 - (s_pos + 1.0) / (
+        s_pos + 0.5 * s_neg + 0.5 * (1.0 - s_pos) + 1.0
+    )
     b_dice = binary_dice_loss(preds, targs)
     assert_allclose_optax(b_dice, np.array([expected_b_dice, expected_b_dice]))
 
+    b_dice_1ch = binary_dice_loss(asarray([[2.0], [-2.0]]), asarray([[1.0], [0.0]]))
+    assert b_dice_1ch.shape == (2,)
+
     probs_in = asarray([[0.9, 0.1], [0.1, 0.9]])
     b_dice_prob = binary_dice_loss(probs_in, targs, apply_sigmoid=False)
-    expected_prob_dice = 1.0 - (2.0 * 0.9 + 1.0) / (1.0 + 1.0 + 1.0)
+    expected_prob_dice = 1.0 - (0.9 + 1.0) / (0.9 + 0.5 * 0.1 + 0.5 * 0.1 + 1.0)
     assert_allclose_optax(
         b_dice_prob, np.array([expected_prob_dice, expected_prob_dice])
     )
+
+    d_expand_p = dice_loss(asarray([2.0, -2.0]), asarray([[1.0], [0.0]]))
+    d_expand_t = dice_loss(asarray([[2.0], [-2.0]]), asarray([1.0, 0.0]))
+    assert_allclose_optax(d_expand_p, d_expand_t)
 
     d_mean = dice_loss(probs_in, targs, apply_softmax=False, reduction="mean")
     c0_loss = 1.0 - (0.9 + 1.0) / (0.9 + 0.5 * 0.0 + 0.5 * 0.1 + 1.0)
@@ -512,8 +522,8 @@ def test_dice_losses() -> None:
         d_weighted_mean,
         np.array(
             [
-                (1.0 * c0_loss + 2.0 * c1_loss) / 3.0,
-                (1.0 * c1_loss + 2.0 * c0_loss) / 3.0,
+                0.5 * (1.0 * c0_loss + 2.0 * c1_loss),
+                0.5 * (1.0 * c1_loss + 2.0 * c0_loss),
             ]
         ),
     )
@@ -532,17 +542,16 @@ def test_dice_losses() -> None:
         apply_softmax=False,
         ignore_background=True,
     )
-    w_fg = 1.0 / (1.0 * 1.0 + 1e-8)
-    exp_gdl_3d = 1.0 - (2.0 * w_fg * 0.8 + 1.0) / (w_fg * (1.0 + 1.0) + 1.0)
-    assert_allclose_optax(gdl_3d, np.array([exp_gdl_3d]))
+    exp_gdl_3d = 1.0 - (0.8 + 1.0) / (0.8 + 0.5 * 0.2 + 0.5 * 0.2 + 1.0)
+    assert_allclose_optax(gdl_3d, np.array(exp_gdl_3d))
 
-    gdl_2d = multiclass_generalized_dice_loss(probs_in, targs, apply_softmax=False)
-    w0 = 1.0 / (1.0 + 1e-8)
-    w1 = 1.0 / 1e-8
-    exp_gdl_row0 = 1.0 - (2.0 * (w0 * 0.9 + w1 * 0.0) + 1.0) / (
-        w0 * 1.9 + w1 * 0.1 + 1.0
+    gdl_1d = multiclass_generalized_dice_loss(
+        asarray([0.8, 0.2]), asarray([1.0, 0.0]), apply_softmax=False
     )
-    assert_allclose_optax(gdl_2d, np.array([exp_gdl_row0, exp_gdl_row0]), rtol=1e-4)
+    assert gdl_1d.shape == ()
+
+    b_dice_1d = binary_dice_loss(asarray([2.0, -2.0]), asarray([1.0, 0.0]))
+    assert_allclose_optax(b_dice_1d, np.array(expected_b_dice))
 
     def b_dice_sum(x: Tensor) -> Tensor:
         """Sum of binary dice loss for gradient check.
@@ -556,8 +565,16 @@ def test_dice_losses() -> None:
         return reduce_sum(binary_dice_loss(x, targs, apply_sigmoid=False))
 
     grad_bd = numeric_grad(b_dice_sum, probs_in)
-    assert float(grad_bd[0, 0].item()) < 0.0
-    assert float(grad_bd[0, 1].item()) > 0.0
+    denom_val = 0.9 + 0.5 * 0.1 + 0.5 * 0.1 + 1.0
+    numer_val = 0.9 + 1.0
+    d_pos = -(denom_val - 0.5 * numer_val) / (denom_val**2)
+    d_neg = (0.5 * numer_val) / (denom_val**2)
+    assert_allclose_optax(
+        grad_bd,
+        np.array([[d_pos, d_neg], [d_neg, d_pos]]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
 
     with pytest.raises(ValueError, match="Unsupported reduction"):
         dice_loss(preds, targs, reduction="invalid")
@@ -585,7 +602,15 @@ def test_metric_losses() -> None:
         """
         return reduce_sum(triplet_margin_loss(x, positives, negatives))
 
-    assert np.linalg.norm(numeric_grad(trip_fn, anchors)) > 0.0
+    expected_trip_grad = np.array(
+        [[0.0, 0.0], [(-0.2 / pos_d1) - (-0.05 / neg_d1), 0.0]]
+    )
+    assert_allclose_optax(
+        numeric_grad(trip_fn, anchors),
+        expected_trip_grad,
+        rtol=1e-3,
+        atol=1e-3,
+    )
 
     emb = asarray([[1.0, 0.2], [0.9, 0.1], [-0.1, 1.0], [0.1, 0.9]])
     lbl = asarray([0, 0, 1, 1])
@@ -613,8 +638,20 @@ def test_metric_losses() -> None:
         """
         return ntxent(x, lbl, temperature=0.5)
 
+    def j_ntxent_fn(x: jnp.ndarray) -> jnp.ndarray:
+        """Evaluate optax ntxent loss for JAX reference gradient.
+
+        Args:
+            x: JAX embeddings array.
+
+        Returns:
+            Scalar JAX loss.
+        """
+        return jnp.asarray(optax.losses.ntxent(x, j_lbl, temperature=0.5))
+
     ngrad_ntxent = numeric_grad(ntxent_fn, emb)
-    assert np.linalg.norm(ngrad_ntxent) > 0.0
+    jgrad_ntxent = np.asarray(jax.grad(j_ntxent_fn)(j_emb))
+    assert_allclose_optax(ngrad_ntxent, jgrad_ntxent, rtol=1e-3, atol=1e-3)
 
     lbl_unique = asarray([0, 1, 2, 3])
     assert float(ntxent(emb, lbl_unique).item()) == 0.0
@@ -688,7 +725,30 @@ def test_sequence_ctc_losses() -> None:
         """
         return reduce_sum(ctc_loss(x, logit_paddings, labels, label_paddings))
 
-    assert np.linalg.norm(numeric_grad(ctc_sum_fn, logits)) > 0.0
+    def j_ctc_sum_fn(x: jnp.ndarray) -> jnp.ndarray:
+        """Sum of optax CTC losses for JAX reference gradient.
+
+        Args:
+            x: JAX logits array.
+
+        Returns:
+            Scalar sum of JAX CTC losses.
+        """
+        return jnp.sum(
+            optax.ctc_loss(
+                x,
+                jnp.array(raw_lpad, dtype=jnp.float32),
+                jnp.array(raw_labels, dtype=jnp.int32),
+                jnp.array(raw_labpad, dtype=jnp.float32),
+            )
+        )
+
+    assert_allclose_optax(
+        numeric_grad(ctc_sum_fn, logits),
+        np.asarray(jax.grad(j_ctc_sum_fn)(jnp.array(raw_logits, dtype=jnp.float32))),
+        rtol=1e-3,
+        atol=1e-3,
+    )
 
     empty_time_logits = reshape(asarray([]), (1, 0, 2))
     empty_time_pad = reshape(asarray([]), (1, 0))
@@ -809,9 +869,12 @@ def test_sparsemax_ranking_and_fenchel_young() -> None:
         del args, kwargs
         return reduce_max(s, axis=-1)
 
+    fy_scores = asarray([[1.0, 3.0], [0.5, 2.0]])
+    fy_targets = asarray([[0.8, 0.2], [0.6, 0.4]])
+
     fy_axis = make_fenchel_young_loss(max_fn_axis)
-    res_axis = fy_axis(rank_logits, rank_labels)
-    assert_allclose_optax(res_axis, np.array([0.0, 0.0]))
+    res_axis = fy_axis(fy_scores, fy_targets)
+    assert_allclose_optax(res_axis, np.array([1.6, 0.9]))
 
     def max_fn_1d(
         s: Tensor,
@@ -833,5 +896,46 @@ def test_sparsemax_ranking_and_fenchel_young() -> None:
         return reduce_max(s)
 
     fy_1d = make_fenchel_young_loss(max_fn_1d)
-    res_1d = fy_1d(rank_logits, rank_labels)
-    assert_allclose_optax(res_1d, np.array([0.0, 0.0]))
+    res_1d = fy_1d(fy_scores, fy_targets)
+    assert_allclose_optax(res_1d, np.array([1.6, 0.9]))
+
+    def fy_sum_fn(x: Tensor) -> Tensor:
+        """Sum of Fenchel-Young losses for gradient check.
+
+        Args:
+            x: Scores Tensor.
+
+        Returns:
+            Scalar sum.
+        """
+        return reduce_sum(fy_1d(x, fy_targets))
+
+    assert_allclose_optax(
+        numeric_grad(fy_sum_fn, fy_scores),
+        np.array([[-0.8, 0.8], [-0.6, 0.6]]),
+        rtol=1e-4,
+        atol=1e-4,
+    )
+
+
+def test_losses_chex_validation_and_zero_jax_inputs() -> None:
+    """Verify `zero_chex` shape/rank assertions in losses and direct `zero_jax` array inputs."""
+    from zero_flax.types import ensure_array
+
+    pred = ensure_array([[1.0, 2.0], [3.0, 4.0]])
+    targ = ensure_array([[1.5, 2.5], [2.5, 3.5]])
+    se = squared_error(pred, targ)
+    assert se.shape == (2, 2)
+
+    with pytest.raises(AssertionError):
+        squared_error(asarray([1.0, 2.0]), asarray([1.0, 2.0, 3.0]))
+    with pytest.raises(AssertionError):
+        l2_loss(asarray([1.0, 2.0]), asarray([1.0, 2.0, 3.0]))
+    with pytest.raises(AssertionError):
+        kl_divergence(asarray([0.1, 0.2]), asarray([0.1, 0.2, 0.7]))
+    with pytest.raises(AssertionError):
+        convex_kl_divergence(asarray([0.1, 0.2]), asarray([0.1, 0.2, 0.7]))
+    with pytest.raises(AssertionError):
+        multiclass_hinge_loss(asarray([[1.0, 2.0]]), asarray([[0]]))
+    with pytest.raises(AssertionError):
+        ranking_softmax_loss(asarray([1.0, 2.0]), asarray([1.0, 2.0, 3.0]))

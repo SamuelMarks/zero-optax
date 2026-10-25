@@ -11,7 +11,6 @@ from zero_optax.base import (
     OptState,
     ScaleByScheduleState,
 )
-from zero_optax.optimizers.adam import _as_adam_state
 from zero_optax.transform import (
     ScaleByAdamState,
     scale_by_learning_rate,
@@ -36,7 +35,7 @@ def yogi(
     b1: float = 0.9,
     b2: float = 0.999,
     eps: float = 1e-3,
-) -> GradientTransformation:
+) -> GradientTransformation[YogiState]:
     """Create the Yogi adaptive optimizer.
 
     Yogi controls effective learning rate growth using an additive second
@@ -69,7 +68,7 @@ def yogi(
             Initialized `YogiState`.
         """
         return YogiState(
-            yogi_state=_as_adam_state(yogi_tx.init(params)),
+            yogi_state=yogi_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -87,13 +86,16 @@ def yogi(
 
         Returns:
             Tuple of `(transformed_updates, new_yogi_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `YogiState`.
         """
         if not isinstance(state, YogiState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected YogiState in yogi, got {type(state)!r}.")
         yogi_updates, next_yogi = yogi_tx.update(updates, state.yogi_state, params)
         new_updates, _ = lr_tx.update(yogi_updates, state.scale_state, params)
         return new_updates, YogiState(
-            yogi_state=_as_adam_state(next_yogi),
+            yogi_state=next_yogi,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -101,8 +103,6 @@ def yogi(
 
 
 __all__ = [
-    "ScaleByAdamState",
-    "ScaleByScheduleState",
     "YogiState",
     "yogi",
 ]

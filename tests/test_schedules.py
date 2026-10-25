@@ -34,7 +34,18 @@ from zero_optax.schedules import (
     warmup_cosine_decay_schedule,
     warmup_exponential_decay_schedule,
 )
-from zero_optax.schedules.schedule import _step_to_float
+
+
+def _scalar_float(val: float | int | Tensor) -> float:
+    """Extract a Python float from a scalar float, int, or Tensor for assertion.
+
+    Args:
+        val: Evaluated schedule value.
+
+    Returns:
+        Python float value.
+    """
+    return float(val.item()) if isinstance(val, Tensor) else float(val)
 
 
 class _MockStatefulSchedule:
@@ -108,9 +119,9 @@ def test_base_schedules() -> None:
     assert exponential_decay(1.0, 0, 0.5)(5) == 1.0
     assert exponential_decay(1.0, 10, -0.5)(5) == 1.0
     assert exponential_decay(1.0, 10, 0.5, transition_begin=5)(2) == 1.0
-    assert math.isclose(_step_to_float(exponential_decay(1.0, 10, 0.5)(10)), 0.5)
+    assert math.isclose(_scalar_float(exponential_decay(1.0, 10, 0.5)(10)), 0.5)
     assert math.isclose(
-        _step_to_float(exponential_decay(1.0, 10, 0.5)(5)), 1.0 * (0.5**0.5)
+        _scalar_float(exponential_decay(1.0, 10, 0.5)(5)), 1.0 * (0.5**0.5)
     )
     assert exponential_decay(1.0, 10, 0.5, staircase=True)(5) == 1.0
     assert exponential_decay(1.0, 10, 0.5, end_value=0.8)(10) == 0.8
@@ -120,7 +131,7 @@ def test_base_schedules() -> None:
     assert cosine_decay_schedule(1.0, 10)(10) == 0.0
     assert cosine_decay_schedule(1.0, 10)(20) == 0.0
     assert math.isclose(
-        _step_to_float(cosine_decay_schedule(1.0, 10, alpha=0.1, exponent=2.0)(10)),
+        _scalar_float(cosine_decay_schedule(1.0, 10, alpha=0.1, exponent=2.0)(10)),
         0.1,
     )
 
@@ -131,7 +142,7 @@ def test_piecewise_and_join_schedules() -> None:
     assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.1})(0) == 1.0
     assert piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.1})(5) == 0.5
     assert math.isclose(
-        _step_to_float(piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.2})(10)),
+        _scalar_float(piecewise_constant_schedule(1.0, {5: 0.5, 10: 0.2})(10)),
         0.1,
     )
 
@@ -139,7 +150,7 @@ def test_piecewise_and_join_schedules() -> None:
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.2})(-1) == 1.0
     assert piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.2})(0) == 1.0
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.2})(2)
         ),
         float(
@@ -148,7 +159,7 @@ def test_piecewise_and_join_schedules() -> None:
         rel_tol=1e-5,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             piecewise_interpolate_schedule("cosine", 1.0, {5: 0.5, 10: 0.2})(2)
         ),
         float(
@@ -157,13 +168,13 @@ def test_piecewise_and_join_schedules() -> None:
         rel_tol=1e-5,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.2})(10)
         ),
         0.1,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             piecewise_interpolate_schedule("linear", 1.0, {5: 0.5, 10: 0.2})(15)
         ),
         0.1,
@@ -187,12 +198,13 @@ def test_warmup_and_cycle_schedules() -> None:
     """Test warmup schedules, 1-cycle schedules, and `sgdr_schedule` against `optax`."""
     assert warmup_constant_schedule(0.0, 1.0, 10)(5) == 0.5
     assert warmup_constant_schedule(0.0, 1.0, 10)(15) == 1.0
+    assert warmup_constant_schedule(0.0, 1.0, 0)(5) == 1.0
 
     z_wcos = warmup_cosine_decay_schedule(0.0, 1.0, 10, 30, end_value=0.1)
     o_wcos = optax.warmup_cosine_decay_schedule(0.0, 1.0, 10, 30, end_value=0.1)
     for step in (0, 5, 10, 20, 30, 40):
         assert math.isclose(
-            _step_to_float(z_wcos(step)),
+            _scalar_float(z_wcos(step)),
             float(o_wcos(step)),
             rel_tol=1e-5,
             abs_tol=1e-6,
@@ -206,23 +218,23 @@ def test_warmup_and_cycle_schedules() -> None:
         == 1.0
     )
     assert math.isclose(
-        _step_to_float(warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5)(30)),
+        _scalar_float(warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5)(30)),
         0.5,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5, staircase=True)(20)
         ),
         1.0,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 0.5, end_value=0.8)(30)
         ),
         0.8,
     )
     assert math.isclose(
-        _step_to_float(
+        _scalar_float(
             warmup_exponential_decay_schedule(0.0, 1.0, 10, 20, 2.0, end_value=1.5)(30)
         ),
         1.5,
@@ -232,7 +244,7 @@ def test_warmup_and_cycle_schedules() -> None:
     o_cos1 = optax.cosine_onecycle_schedule(100, 1.0)
     for step in (0, 15, 30, 65, 100, 110):
         assert math.isclose(
-            _step_to_float(z_cos1(step)),
+            _scalar_float(z_cos1(step)),
             float(o_cos1(step)),
             rel_tol=1e-5,
             abs_tol=1e-7,
@@ -244,7 +256,7 @@ def test_warmup_and_cycle_schedules() -> None:
     o_lin1 = optax.linear_onecycle_schedule(100, 1.0)
     for step in (0, 15, 30, 57, 85, 95, 100, 105):
         assert math.isclose(
-            _step_to_float(z_lin1(step)),
+            _scalar_float(z_lin1(step)),
             float(o_lin1(step)),
             rel_tol=1e-5,
             abs_tol=1e-7,
@@ -272,7 +284,7 @@ def test_warmup_and_cycle_schedules() -> None:
     o_sgdr = optax.sgdr_schedule(cycles)
     for step in (0, 1, 2, 6, 10, 12, 14, 20, 30, 35):
         assert math.isclose(
-            _step_to_float(z_sgdr(step)),
+            _scalar_float(z_sgdr(step)),
             float(o_sgdr(step)),
             rel_tol=1e-5,
             abs_tol=1e-6,
@@ -334,10 +346,8 @@ def test_inject_hyperparams_and_stateful() -> None:
     ou2, _ = otx.update(j_updates, ostate1, j_params)
     assert_allclose_optax(get_tree_item(u2, "w"), np.asarray(ou2["w"]), rtol=1e-4)
 
-    u_fallback, _ = tx.update(updates, EmptyState(), params)
-    assert_allclose_optax(
-        get_tree_item(u_fallback, "w"), np.asarray(ou1["w"]), rtol=1e-4
-    )
+    with pytest.raises(TypeError, match="InjectHyperparamsState"):
+        tx.update(updates, EmptyState(), params)
 
     injected_adamw_factory = inject_hyperparams(adamw)
     assert injected_adamw_factory is not None
@@ -374,8 +384,8 @@ def test_inject_hyperparams_and_stateful() -> None:
     su2, _ = st_tx.update(updates, st_state1, params)
     assert_allclose_optax(get_tree_item(su2, "w"), np.array([-0.02, 0.02]))
 
-    su_fallback, _ = st_tx.update(updates, EmptyState(), params)
-    assert_allclose_optax(get_tree_item(su_fallback, "w"), np.array([-0.01, 0.01]))
+    with pytest.raises(TypeError, match="InjectStatefulHyperparamsState"):
+        st_tx.update(updates, EmptyState(), params)
 
     callable_st_tx = stateful_sgd_factory(z_lr_sched, momentum=0.0, nesterov=False)
     cst_state = callable_st_tx.init(params)

@@ -30,23 +30,6 @@ class AdaBeliefState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_belief_state(state: OptState) -> ScaleByBeliefState:
-    """Narrow `OptState` from `scale_by_belief` to `ScaleByBeliefState`.
-
-    Args:
-        state: State returned by `scale_by_belief`.
-
-    Returns:
-        `ScaleByBeliefState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `ScaleByBeliefState`.
-    """
-    if isinstance(state, ScaleByBeliefState):
-        return state
-    raise TypeError(f"Expected ScaleByBeliefState, got {type(state)!r}")
-
-
 def adabelief(
     learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
@@ -55,7 +38,7 @@ def adabelief(
     eps_root: float = 1e-16,
     *,
     nesterov: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[AdaBeliefState]:
     """Create the AdaBelief optimizer.
 
     Adapts step sizes according to the "belief" in observed gradients via the
@@ -91,7 +74,7 @@ def adabelief(
             Initialized `AdaBeliefState`.
         """
         return AdaBeliefState(
-            belief_state=_as_belief_state(belief_tx.init(params)),
+            belief_state=belief_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -109,15 +92,20 @@ def adabelief(
 
         Returns:
             Tuple of `(transformed_updates, new_adabelief_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `AdaBeliefState`.
         """
         if not isinstance(state, AdaBeliefState):
-            state = init_fn(updates)
+            raise TypeError(
+                f"Expected AdaBeliefState in adabelief, got {type(state)!r}."
+            )
         belief_updates, next_belief = belief_tx.update(
             updates, state.belief_state, params
         )
         new_updates, _ = lr_tx.update(belief_updates, state.scale_state, params)
         return new_updates, AdaBeliefState(
-            belief_state=_as_belief_state(next_belief),
+            belief_state=next_belief,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -126,7 +114,5 @@ def adabelief(
 
 __all__ = [
     "AdaBeliefState",
-    "ScaleByBeliefState",
-    "ScaleByScheduleState",
     "adabelief",
 ]

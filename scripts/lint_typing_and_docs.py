@@ -18,9 +18,37 @@ import tokenize
 from collections.abc import Sequence
 from pathlib import Path
 
-FORBIDDEN_NAMES: set[str] = {"Any", "object", "cast", "vars"}
-FORBIDDEN_ATTRS: set[str] = {"__dict__"}
-FORBIDDEN_REFLECTION_IN_SRC: set[str] = {"getattr", "setattr", "hasattr"}
+FORBIDDEN_NAMES: set[str] = {
+    "Any",
+    "object",
+    "cast",
+    "vars",
+    "getattr",
+    "setattr",
+    "hasattr",
+    "delattr",
+    "eval",
+    "exec",
+}
+FORBIDDEN_ATTRS: set[str] = {"__dict__", "__setattr__", "__getattribute__"}
+
+
+def check_pyproject_mypy_config(pyproject_path: Path | None = None) -> list[str]:
+    """Verify `pyproject.toml` does not suppress mypy error codes via `disable_error_code`.
+
+    Args:
+        pyproject_path: Optional path to `pyproject.toml` (defaults to repo root).
+
+    Returns:
+        List of error messages if `disable_error_code` is present.
+    """
+    target = pyproject_path if pyproject_path is not None else Path("pyproject.toml")
+    if not target.exists():
+        return []
+    content = target.read_text(encoding="utf-8")
+    if re.search(r"^\s*disable_error_code\s*=", content, flags=re.MULTILINE):
+        return [f"{target}: Forbidden 'disable_error_code' in [tool.mypy]."]
+    return []
 
 
 def _extract_documented_args(docstring: str) -> set[str]:
@@ -92,10 +120,6 @@ def lint_file(filepath: Path, is_src: bool = False) -> list[str]:
             if node.id in FORBIDDEN_NAMES:
                 errors.append(
                     f"{filepath}:{node.lineno}: Forbidden identifier '{node.id}'."
-                )
-            if is_src and node.id in FORBIDDEN_REFLECTION_IN_SRC:
-                errors.append(
-                    f"{filepath}:{node.lineno}: Forbidden reflection call '{node.id}' in src/."
                 )
         elif isinstance(node, ast.Attribute):
             if node.attr in FORBIDDEN_ATTRS:
@@ -173,18 +197,22 @@ def lint_paths(paths: Sequence[Path]) -> list[str]:
     return all_errors
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    pyproject_path: Path | None = None,
+) -> int:
     """Run the typing and docstring linter from CLI arguments.
 
     Args:
         argv: Optional list of directory/file path strings (defaults to `["src", "scripts", "tests"]`).
+        pyproject_path: Optional path to `pyproject.toml` to check for mypy error suppressions.
 
     Returns:
         `0` if all checks pass, `1` if any violation is detected.
     """
     target_strs = list(argv) if argv else ["src", "scripts", "tests"]
     target_paths = [Path(s) for s in target_strs if Path(s).exists()]
-    errors = lint_paths(target_paths)
+    errors = check_pyproject_mypy_config(pyproject_path) + lint_paths(target_paths)
     if errors:
         for err in errors:
             print(err)

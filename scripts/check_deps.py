@@ -8,10 +8,17 @@ from pathlib import Path
 
 ALLOWED_MODULES: set[str] = {
     "pydantic",
+    "cdd",
     "cdd_python",
+    "ml_ecosystem_snapshots",
     "ml_switcheroo_ir",
     "ml_switcheroo_compiler",
     "ml_switcheroo",
+    "zero_jax",
+    "zero_chex",
+    "zero_flax",
+    "zero_orbax",
+    "zero_grain",
 }
 
 
@@ -22,7 +29,6 @@ FALLBACK_STDLIB_MODULES: set[str] = {
     "collections",
     "contextlib",
     "copy",
-    " dataclasses",
     "dataclasses",
     "enum",
     "functools",
@@ -47,6 +53,7 @@ FALLBACK_STDLIB_MODULES: set[str] = {
     "tokenize",
     "types",
     "typing",
+    "typing_extensions",
     "unittest",
     "warnings",
 }
@@ -88,13 +95,14 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
         filepath: Path to the Python file to inspect.
 
     Returns:
-        List of `(line_number, module_name)` tuples for each disallowed import.
+        List of `(line_number, module_name)` tuples for each disallowed import
+        (or `(lineno, "<SyntaxError>")` if `filepath` cannot be parsed).
     """
     source = filepath.read_text(encoding="utf-8")
     try:
         tree = ast.parse(source, filename=str(filepath))
-    except SyntaxError:
-        return []
+    except SyntaxError as exc:
+        return [(exc.lineno or 1, "<SyntaxError>")]
 
     violations: list[tuple[int, str]] = []
     for node in ast.walk(tree):

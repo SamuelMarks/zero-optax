@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
-from zero_optax.base import GradientTransformation, OptState, Params, Updates
+from zero_optax.base import (
+    GradientTransformation,
+    GradientTransformationExtraArgs,
+    OptState,
+    Params,
+    Updates,
+)
 
 
-def chain(*args: GradientTransformation) -> GradientTransformation:
+def chain(
+    *args: GradientTransformation[OptState] | GradientTransformationExtraArgs[OptState],
+) -> GradientTransformation[tuple[OptState, ...]]:
     """Apply a sequence of chainable gradient transformations in order.
 
     Args:
-        *args: Sequence of `GradientTransformation` instances to apply sequentially.
+        *args: Sequence of `GradientTransformation` or `GradientTransformationExtraArgs`
+            instances to apply sequentially.
 
     Returns:
         A single `GradientTransformation` representing the sequential composition.

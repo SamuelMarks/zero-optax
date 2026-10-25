@@ -2,20 +2,113 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import NamedTuple, Protocol, Union
+from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Generic, NamedTuple, Protocol, TypeVar
 
-from zero_optax._tree import tree_zeros_like
+from zero_orbax.checkpoint import Future as OrbaxFuture
+from zero_orbax.core import SerializedArray
+from zero_orbax.types import PyTree as OrbaxPyTree
+
+from zero_optax._tree import (
+    _coerce_pytree_child,
+    _rebuild_mapping,
+    _replace_variable_leaf,
+    asarray,
+    tree_zeros_like,
+)
 from zero_optax._types import (
     Array,
-    NamedTupleProtocol,
+    ArrayLikeProtocol,
+    CustomMappingPyTreeProtocol,
+    MappableDataclassProtocol,
+    OptStateProtocol,
     Params,
     PyTree,
     ScalarOrSchedule,
     Schedule,
+    StateDictTree,
     Tensor,
+    ToListArrayProtocol,
     Updates,
+    VariableLeafProtocol,
 )
+
+
+class _OptStateDataclassBase(Mapping[str, PyTree]):
+    """Base class for dataclass-based `OptState` containers providing mapping and PyTree protocols."""
+
+    _fields: tuple[str, ...] = ()
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return an ordered mapping from field names to their current state values.
+
+        Returns:
+            Dictionary mapping field names to state values.
+        """
+        return {}
+
+    def __chex_mappable_fields__(self) -> tuple[str, ...]:
+        """Return the ordered tuple of field names for `zero_chex` PyTree traversal.
+
+        Returns:
+            Tuple of field names.
+        """
+        return self._fields
+
+    def __chex_field_values__(self) -> tuple[PyTree, ...]:
+        """Return the ordered tuple of field values for `zero_chex` PyTree traversal.
+
+        Returns:
+            Tuple of field values matching `_fields`.
+        """
+        as_dict = self._asdict()
+        return tuple(as_dict[k] for k in self._fields)
+
+    def __getitem__(self, key: str) -> PyTree:
+        """Retrieve a state field value by field name.
+
+        Args:
+            key: Field name in `_fields`.
+
+        Returns:
+            Value of the requested state field.
+        """
+        return self._asdict()[key]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over the field names in `_fields`.
+
+        Returns:
+            Iterator over field name strings.
+        """
+        return iter(self._fields)
+
+    def __len__(self) -> int:
+        """Return the number of state fields.
+
+        Returns:
+            Number of fields in `_fields`.
+        """
+        return len(self._fields)
+
+
+def _as_count_tensor(val: PyTree) -> Tensor:
+    """Coerce a deserialized count field into a `Tensor`.
+
+    Args:
+        val: Raw count field value.
+
+    Returns:
+        Count `Tensor`.
+    """
+    if isinstance(val, Tensor):
+        return val
+    return asarray(
+        val
+        if isinstance(val, (int, float, bool, ArrayLikeProtocol, ToListArrayProtocol))
+        else 0
+    )
 
 
 class EmptyState(NamedTuple):
@@ -32,7 +125,8 @@ class TraceState(NamedTuple):
     trace: Updates
 
 
-class ScaleByScheduleState(NamedTuple):
+@dataclass(frozen=True)
+class ScaleByScheduleState(_OptStateDataclassBase):
     """State holding the integer step count for schedule-based scaling.
 
     Attributes:
@@ -40,29 +134,43 @@ class ScaleByScheduleState(NamedTuple):
     """
 
     count: Tensor
+    _fields: tuple[str, ...] = ("count",)
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`.
+        """
+        return {"count": self.count}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByScheduleState:
+        """Construct `ScaleByScheduleState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count,)`.
+
+        Returns:
+            Reconstructed `ScaleByScheduleState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]))
 
 
 class ScaleState(NamedTuple):
     """Empty state for constant step-size scaling transformations."""
 
 
-OptState = Union[
-    EmptyState,
-    TraceState,
-    ScaleByScheduleState,
-    ScaleState,
-    NamedTupleProtocol,
-    tuple["OptState", ...],
-    list["OptState"],
-    Mapping[str, "OptState"],
-    PyTree,
-]
+OptState = PyTree
+
+StateT_co = TypeVar("StateT_co", bound=OptState, covariant=True)
 
 
-class TransformInitFn(Protocol):
+class TransformInitFn(Protocol[StateT_co]):
     """Protocol for a callable that initializes optimizer state from model parameters."""
 
-    def __call__(self, params: Params) -> OptState:
+    def __call__(self, params: Params) -> StateT_co:
         """Initialize and return the optimizer state for `params`.
 
         Args:
@@ -74,7 +182,7 @@ class TransformInitFn(Protocol):
         ...
 
 
-class TransformUpdateFn(Protocol):
+class TransformUpdateFn(Protocol[StateT_co]):
     """Protocol for a callable that transforms gradients and updates optimizer state."""
 
     def __call__(
@@ -82,7 +190,7 @@ class TransformUpdateFn(Protocol):
         updates: Updates,
         state: OptState,
         params: Params | None = None,
-    ) -> tuple[Updates, OptState]:
+    ) -> tuple[Updates, StateT_co]:
         """Transform gradient `updates` and advance `state`.
 
         Args:
@@ -96,7 +204,7 @@ class TransformUpdateFn(Protocol):
         ...
 
 
-class TransformUpdateExtraArgsFn(Protocol):
+class TransformUpdateExtraArgsFn(Protocol[StateT_co]):
     """Protocol for an update function accepting extra keyword arguments."""
 
     def __call__(
@@ -105,7 +213,7 @@ class TransformUpdateExtraArgsFn(Protocol):
         state: OptState,
         params: Params | None = None,
         **extra_args: float | int | str | bool | Tensor | None,
-    ) -> tuple[Updates, OptState]:
+    ) -> tuple[Updates, StateT_co]:
         """Transform gradient `updates` with optional extra keyword arguments.
 
         Args:
@@ -120,7 +228,8 @@ class TransformUpdateExtraArgsFn(Protocol):
         ...
 
 
-class GradientTransformation(NamedTuple):
+@dataclass(frozen=True)
+class GradientTransformation(Generic[StateT_co]):
     """A pair of pure functions `(init, update)` implementing a gradient transformation.
 
     Attributes:
@@ -128,11 +237,13 @@ class GradientTransformation(NamedTuple):
         update: Pure function transforming updates and advancing the optimizer state.
     """
 
-    init: TransformInitFn
-    update: TransformUpdateFn
+    init: TransformInitFn[StateT_co]
+    update: TransformUpdateFn[StateT_co]
+    _fields: tuple[str, ...] = ("init", "update")
 
 
-class GradientTransformationExtraArgs(NamedTuple):
+@dataclass(frozen=True)
+class GradientTransformationExtraArgs(Generic[StateT_co]):
     """Gradient transformation whose `update` accepts extra keyword arguments.
 
     Attributes:
@@ -140,11 +251,12 @@ class GradientTransformationExtraArgs(NamedTuple):
         update: Pure function accepting extra keyword arguments during update.
     """
 
-    init: TransformInitFn
-    update: TransformUpdateExtraArgsFn
+    init: TransformInitFn[StateT_co]
+    update: TransformUpdateExtraArgsFn[StateT_co]
+    _fields: tuple[str, ...] = ("init", "update")
 
 
-def identity() -> GradientTransformation:
+def identity() -> GradientTransformation[EmptyState]:
     """Stateless identity transformation that leaves gradient updates unchanged.
 
     Returns:
@@ -184,7 +296,7 @@ def identity() -> GradientTransformation:
     return GradientTransformation(init_fn, update_fn)
 
 
-def set_to_zero() -> GradientTransformation:
+def set_to_zero() -> GradientTransformation[EmptyState]:
     """Stateless transformation that sets all gradient updates to zero.
 
     Returns:
@@ -224,6 +336,180 @@ def set_to_zero() -> GradientTransformation:
     return GradientTransformation(init_fn, update_fn)
 
 
+def _tensor_to_nested_list(t: Tensor) -> OrbaxPyTree:
+    """Convert a `Tensor` into a nested Python list or scalar matching `t.shape`.
+
+    Args:
+        t: Input `Tensor`.
+
+    Returns:
+        Scalar (if 0-D) or nested list of scalars matching `t.shape`.
+    """
+    if t.ndim == 0:
+        return t.item()
+    return [_tensor_to_nested_list(sub) for sub in t]
+
+
+def _tensor_to_serialized_array(t: Tensor) -> SerializedArray:
+    """Convert a `Tensor` into a `zero_orbax.core.SerializedArray`.
+
+    Args:
+        t: Input `Tensor`.
+
+    Returns:
+        `SerializedArray` with nested data, shape, and dtype name.
+    """
+    dt_str = str(t.dtype)
+    clean_dt = dt_str[6:] if dt_str.startswith("DType.") else dt_str
+    return SerializedArray(
+        data=_tensor_to_nested_list(t), shape=t.shape, dtype=clean_dt
+    )
+
+
+def opt_state_to_state_dict(state: OptState) -> StateDictTree:
+    """Convert an `OptState` container hierarchy into a serializable dictionary/tuple PyTree.
+
+    Args:
+        state: Optimizer state (`OptStateProtocol`, tuple, list, mapping, or leaf).
+
+    Returns:
+        Pure dictionary/tuple/array PyTree suitable for `zero-orbax` or `zero-flax` serialization.
+    """
+    if isinstance(state, OptStateProtocol):
+        raw_map = state._asdict()
+        return {k: opt_state_to_state_dict(raw_map[k]) for k in state._fields}
+    if isinstance(state, MappableDataclassProtocol):
+        return {
+            k: opt_state_to_state_dict(_coerce_pytree_child(v))
+            for k, v in zip(
+                state.__chex_mappable_fields__(), state.__chex_field_values__()
+            )
+        }
+    if isinstance(state, (Mapping, CustomMappingPyTreeProtocol)):
+        return {
+            str(k): opt_state_to_state_dict(_coerce_pytree_child(state[k]))
+            for k in state
+        }
+    if isinstance(state, tuple):
+        return tuple(opt_state_to_state_dict(item) for item in state)
+    if isinstance(state, list):
+        return [opt_state_to_state_dict(item) for item in state]
+    if isinstance(state, VariableLeafProtocol):
+        return opt_state_to_state_dict(asarray(state.value))
+    if isinstance(state, Tensor):
+        return _tensor_to_serialized_array(state)
+    if isinstance(state, (int, float, bool, type(None))):
+        return state
+    return _tensor_to_serialized_array(asarray(state))
+
+
+def _unwrap_orbax_state_dict(
+    state_dict: PyTree | OrbaxPyTree | OrbaxFuture,
+) -> PyTree:
+    """Normalize a restored `zero-orbax` payload or `Future` into a `zero-optax` `PyTree`.
+
+    Args:
+        state_dict: Restored checkpoint payload or `Future`.
+
+    Returns:
+        Normalized `zero-optax` `PyTree`.
+    """
+    raw = state_dict.result() if isinstance(state_dict, OrbaxFuture) else state_dict
+    if isinstance(
+        raw,
+        (
+            Tensor,
+            float,
+            int,
+            bool,
+            type(None),
+            ArrayLikeProtocol,
+            ToListArrayProtocol,
+            VariableLeafProtocol,
+            CustomMappingPyTreeProtocol,
+        ),
+    ):
+        return raw
+    if isinstance(raw, tuple):
+        return tuple(_unwrap_orbax_state_dict(item) for item in raw)
+    if isinstance(raw, list):
+        return [_unwrap_orbax_state_dict(item) for item in raw]
+    return None
+
+
+def opt_state_from_state_dict(
+    template: OptState,
+    state_dict: PyTree | OrbaxPyTree | OrbaxFuture,
+) -> OptState:
+    """Reconstruct a strongly-typed `OptState` from a serialized `state_dict` using `template`.
+
+    Args:
+        template: Reference `OptState` structure (e.g., from `tx.init(params)`).
+        state_dict: Deserialized PyTree dictionary or tuple from `opt_state_to_state_dict` or `zero-orbax`.
+
+    Returns:
+        Reconstructed `OptState` matching the exact classes and leaf types of `template`.
+
+    Raises:
+        TypeError: If `state_dict` container structure is incompatible with `template`.
+    """
+    norm_dict = _unwrap_orbax_state_dict(state_dict)
+    if isinstance(template, OptStateProtocol):
+        template_map = template._asdict()
+        if isinstance(norm_dict, (Mapping, CustomMappingPyTreeProtocol)):
+            reconstructed = [
+                opt_state_from_state_dict(
+                    template_map[k], _coerce_pytree_child(norm_dict[k])
+                )
+                for k in template._fields
+            ]
+            return template._make(reconstructed)
+        if isinstance(norm_dict, (tuple, list)):
+            reconstructed = [
+                opt_state_from_state_dict(template_map[k], val)
+                for k, val in zip(template._fields, norm_dict)
+            ]
+            return template._make(reconstructed)
+        raise TypeError(
+            f"Cannot restore {type(template).__name__} from {type(norm_dict).__name__}."
+        )
+    if isinstance(template, (Mapping, CustomMappingPyTreeProtocol)) and isinstance(
+        norm_dict, (Mapping, CustomMappingPyTreeProtocol)
+    ):
+        mapped: dict[str, PyTree] = {
+            str(k): opt_state_from_state_dict(
+                _coerce_pytree_child(template[k]),
+                _coerce_pytree_child(norm_dict[k]),
+            )
+            for k in template
+        }
+        return _rebuild_mapping(template, mapped)
+    if isinstance(template, tuple) and isinstance(norm_dict, (tuple, list)):
+        return tuple(
+            opt_state_from_state_dict(t_item, s_item)
+            for t_item, s_item in zip(template, norm_dict)
+        )
+    if isinstance(template, list) and isinstance(norm_dict, (tuple, list)):
+        return [
+            opt_state_from_state_dict(t_item, s_item)
+            for t_item, s_item in zip(template, norm_dict)
+        ]
+    if isinstance(template, VariableLeafProtocol):
+        inner_state: PyTree = (
+            asarray(norm_dict.value)
+            if isinstance(norm_dict, VariableLeafProtocol)
+            else norm_dict
+        )
+        restored_val = opt_state_from_state_dict(asarray(template.value), inner_state)
+        return _replace_variable_leaf(template, restored_val)
+    if isinstance(template, Tensor) and isinstance(
+        norm_dict,
+        (Tensor, int, float, bool, ArrayLikeProtocol, ToListArrayProtocol),
+    ):
+        return asarray(norm_dict, dtype=template.dtype)
+    return norm_dict
+
+
 __all__ = [
     "Array",
     "EmptyState",
@@ -241,6 +527,10 @@ __all__ = [
     "TransformUpdateExtraArgsFn",
     "TransformUpdateFn",
     "Updates",
+    "_OptStateDataclassBase",
+    "_as_count_tensor",
     "identity",
+    "opt_state_from_state_dict",
+    "opt_state_to_state_dict",
     "set_to_zero",
 ]

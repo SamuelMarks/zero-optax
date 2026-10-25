@@ -29,7 +29,7 @@ class AdaptiveGradClipState(NamedTuple):
     """Empty state for `adaptive_grad_clip` transformation."""
 
 
-def clip(max_delta: float | Tensor) -> GradientTransformation:
+def clip(max_delta: float | Tensor) -> GradientTransformation[ClipState]:
     """Clip gradient updates element-wise to `[-max_delta, +max_delta]`.
 
     Args:
@@ -87,7 +87,9 @@ def clip(max_delta: float | Tensor) -> GradientTransformation:
     return GradientTransformation(init_fn, update_fn)
 
 
-def clip_by_global_norm(max_norm: float | Tensor) -> GradientTransformation:
+def clip_by_global_norm(
+    max_norm: float | Tensor,
+) -> GradientTransformation[ClipByGlobalNormState]:
     """Clip gradient updates using their global L2 norm across the PyTree.
 
     Args:
@@ -149,7 +151,10 @@ def clip_by_global_norm(max_norm: float | Tensor) -> GradientTransformation:
     return GradientTransformation(init_fn, update_fn)
 
 
-def adaptive_grad_clip(clipping: float, eps: float = 1e-3) -> GradientTransformation:
+def adaptive_grad_clip(
+    clipping: float,
+    eps: float = 1e-3,
+) -> GradientTransformation[AdaptiveGradClipState]:
     """Clip updates adaptively based on the ratio of gradient norm to parameter norm.
 
     Args:

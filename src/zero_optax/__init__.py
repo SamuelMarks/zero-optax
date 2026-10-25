@@ -20,6 +20,8 @@ from zero_optax.base import (
     TransformUpdateFn,
     Updates,
     identity,
+    opt_state_from_state_dict,
+    opt_state_to_state_dict,
     set_to_zero,
 )
 from zero_optax.clipping import (
@@ -237,6 +239,8 @@ __all__ = [
     "multiclass_sparsemax_loss",
     "novograd",
     "ntxent",
+    "opt_state_from_state_dict",
+    "opt_state_to_state_dict",
     "optimizers",
     "perceptron_loss",
     "periodic_update",

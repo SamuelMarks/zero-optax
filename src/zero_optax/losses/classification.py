@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import zero_chex
+
 from zero_optax._tree import (
-    INF,
-    NEG_INF,
     abs_tensor,
     arange,
     asarray,
@@ -12,10 +12,12 @@ from zero_optax._tree import (
     expand_dims,
     log,
     log1p,
+    log_softmax,
     maximum,
     reduce_max,
     reduce_sum,
     sigmoid,
+    softmax,
     squeeze,
     take_along_axis,
     zeros,
@@ -106,30 +108,10 @@ def _safe_softmax_cross_entropy(
         return zeros(_reduced_empty_shape(l_arr.shape, axis))
 
     if where is not None:
-        w_arr = asarray(where)
-        l_arr = where_select(w_arr, l_arr, NEG_INF)
-        t_arr = where_select(w_arr, t_arr, 0.0)
+        t_arr = where_select(asarray(where), t_arr, 0.0)
 
-    c = reduce_max(l_arr, axis=axis, keepdims=True)
-    c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
-    l_minus_c = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
-
-    exp_l_c = exp(l_minus_c)
-    if where is not None:
-        exp_l_c = where_select(asarray(where), exp_l_c, 0.0)
-
-    sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
-    logsumexp_val = log(where_select(sumexp == 0.0, 1.0, sumexp))
-
-    log_softmax = where_select(
-        abs_tensor(l_arr) == INF,
-        NEG_INF,
-        l_minus_c - logsumexp_val,
-    )
-    if where is not None:
-        log_softmax = where_select(asarray(where), log_softmax, 0.0)
-
-    t_times_log = where_select(t_arr == 0.0, 0.0, t_arr * log_softmax)
+    log_probs = log_softmax(l_arr, axis=axis, where_mask=where)
+    t_times_log = where_select(t_arr == 0.0, 0.0, t_arr * log_probs)
     return -reduce_sum(t_times_log, axis=axis)
 
 
@@ -191,23 +173,8 @@ def softmax_cross_entropy_with_integer_labels(
     if 0 in l_arr.shape:
         return zeros(t_arr.shape)
 
-    if where is not None:
-        w_arr = asarray(where)
-        l_masked = where_select(w_arr, l_arr, NEG_INF)
-        c = reduce_max(l_masked, axis=axis, keepdims=True)
-        c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
-        shifted = l_arr - c_safe
-        exp_shifted = where_select(w_arr, exp(shifted), 0.0)
-        sumexp = reduce_sum(exp_shifted, axis=axis)
-        log_normalizers = log(sumexp)
-        picked = take_along_axis(shifted, expand_dims(t_arr, axis), axis=axis)
-        label_logits = squeeze(picked, axis=axis)
-        return log_normalizers - label_logits
-
-    c = reduce_max(l_arr, axis=axis, keepdims=True)
-    logsumexp_val = log(reduce_sum(exp(l_arr - c), axis=axis, keepdims=True))
-    log_softmax = l_arr - c - logsumexp_val
-    picked = take_along_axis(log_softmax, expand_dims(t_arr, axis), axis=axis)
+    log_probs = log_softmax(l_arr, axis=axis, where_mask=where)
+    picked = take_along_axis(log_probs, expand_dims(t_arr, axis), axis=axis)
     return -squeeze(picked, axis=axis)
 
 
@@ -274,6 +241,7 @@ def multiclass_hinge_loss(
     """
     p = asarray(scores)
     t = asarray(labels)
+    zero_chex.assert_rank([p, t], [p.ndim, p.ndim - 1])
     correct_p = squeeze(take_along_axis(p, expand_dims(t, -1), axis=-1), axis=-1)
     one_hot = expand_dims(t, -1) == arange(p.shape[-1])
     margin_scores = p + where_select(one_hot, 0.0, 1.0)
@@ -295,6 +263,7 @@ def multiclass_perceptron_loss(
     """
     p = asarray(scores)
     t = asarray(labels)
+    zero_chex.assert_rank([p, t], [p.ndim, p.ndim - 1])
     correct_p = squeeze(take_along_axis(p, expand_dims(t, -1), axis=-1), axis=-1)
     return reduce_max(p, axis=-1) - correct_p
 
@@ -326,25 +295,8 @@ def poly_loss_cross_entropy(
 
     ce = _safe_softmax_cross_entropy(l_arr, t_arr, axis=axis, where=where)
     if where is not None:
-        w_arr = asarray(where)
-        l_arr = where_select(w_arr, l_arr, NEG_INF)
-        t_arr = where_select(w_arr, t_arr, 0.0)
-
-    c = reduce_max(l_arr, axis=axis, keepdims=True)
-    c_safe = where_select(abs_tensor(c) == INF, 0.0, c)
-    l_minus_c = where_select(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
-
-    exp_l_c = exp(l_minus_c)
-    if where is not None:
-        exp_l_c = where_select(asarray(where), exp_l_c, 0.0)
-
-    sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
-    logsumexp_val = log(where_select(sumexp == 0.0, 1.0, sumexp))
-
-    probs = exp(l_minus_c - logsumexp_val)
-    if where is not None:
-        probs = where_select(asarray(where), probs, 0.0)
-
+        t_arr = where_select(asarray(where), t_arr, 0.0)
+    probs = softmax(l_arr, axis=axis, where_mask=where)
     one_minus_pt = reduce_sum(t_arr * (1.0 - probs), axis=axis)
     return ce + asarray(epsilon) * one_minus_pt
 
@@ -368,6 +320,7 @@ def kl_divergence(
     """
     log_p = asarray(log_predictions)
     t_arr = asarray(targets)
+    zero_chex.assert_equal_shape([log_p, t_arr])
     safe_t = where_select(t_arr <= 0.0, 1.0, t_arr)
     log_t = where_select(t_arr == 0.0, 0.0, log(safe_t))
     loss = where_select(t_arr == 0.0, 0.0, t_arr * (log_t - log_p))
@@ -395,6 +348,7 @@ def kl_divergence_with_log_targets(
     """
     log_p = asarray(log_predictions)
     log_t = asarray(log_targets)
+    zero_chex.assert_equal_shape([log_p, log_t])
     loss = exp(log_t) * (log_t - log_p)
     if where is not None:
         loss = where_select(asarray(where), loss, 0.0)
@@ -418,8 +372,11 @@ def convex_kl_divergence(
     Returns:
         Convex KL divergence Tensor with `axis` reduced.
     """
-    kl = kl_divergence(log_predictions, targets, axis=axis, where=where)
-    diff = exp(asarray(log_predictions)) - asarray(targets)
+    log_p = asarray(log_predictions)
+    t_arr = asarray(targets)
+    zero_chex.assert_equal_shape([log_p, t_arr])
+    kl = kl_divergence(log_p, t_arr, axis=axis, where=where)
+    diff = exp(log_p) - t_arr
     if where is not None:
         diff = where_select(asarray(where), diff, 0.0)
     return kl + reduce_sum(diff, axis=axis)

@@ -2,21 +2,38 @@
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from zero_optax._tree import (
     asarray,
     evaluate_schedule,
-    safe_norm,
     sqrt,
-    tree_map,
-    where,
 )
-from zero_optax._types import Params, ScalarOrSchedule, Tensor, TensorLeaf, Updates
-from zero_optax.base import GradientTransformation, OptState
+from zero_optax._types import (
+    Params,
+    PyTree,
+    ScalarOrSchedule,
+    Tensor,
+    Updates,
+)
+from zero_optax.base import (
+    GradientTransformation,
+    OptState,
+    _as_count_tensor,
+    _OptStateDataclassBase,
+)
+from zero_optax.transform import (
+    AddDecayedWeightsState,
+    ScaleByTrustRatioState,
+    add_decayed_weights,
+    scale,
+    scale_by_trust_ratio,
+)
 
 
-class FromageState(NamedTuple):
+@dataclass(frozen=True)
+class FromageState(_OptStateDataclassBase):
     """State for the Fromage optimizer.
 
     Attributes:
@@ -24,12 +41,34 @@ class FromageState(NamedTuple):
     """
 
     count: Tensor
+    _fields: tuple[str, ...] = ("count",)
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`.
+        """
+        return {"count": self.count}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> FromageState:
+        """Construct `FromageState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count,)`.
+
+        Returns:
+            Reconstructed `FromageState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]))
 
 
 def fromage(
     learning_rate: ScalarOrSchedule,
     min_norm: float = 1e-6,
-) -> GradientTransformation:
+) -> GradientTransformation[FromageState]:
     """Create the Frobenius matched gradient descent (Fromage) optimizer.
 
     Args:
@@ -39,6 +78,7 @@ def fromage(
     Returns:
         A `GradientTransformation` implementing Fromage.
     """
+    trust_tx = scale_by_trust_ratio(min_norm=min_norm)
 
     def init_fn(params: Params) -> FromageState:
         """Initialize `FromageState` with `count = 0`.
@@ -68,39 +108,24 @@ def fromage(
             Tuple of `(transformed_updates, new_fromage_state)`.
 
         Raises:
+            TypeError: If `state` is not a `FromageState`.
             ValueError: If `params` is None.
         """
         if params is None:
             raise ValueError("`params` must be provided to `fromage` update.")
-        count = state.count if isinstance(state, FromageState) else asarray(0)
+        if not isinstance(state, FromageState):
+            raise TypeError(f"Expected FromageState in fromage, got {type(state)!r}.")
+        count = state.count
         lr_t = asarray(evaluate_schedule(learning_rate, count))
         mult = 1.0 / sqrt(1.0 + lr_t * lr_t)
         eff_lr = -lr_t * mult
         decay_factor = mult - 1.0
 
-        def _fromage_leaf(u: TensorLeaf, p: TensorLeaf) -> TensorLeaf:
-            """Compute Fromage update for a single parameter leaf.
-
-            Args:
-                u: Gradient update leaf.
-                p: Parameter leaf.
-
-            Returns:
-                Fromage update Tensor leaf.
-            """
-            if u is None or p is None:
-                return u
-            u_t = asarray(u)
-            p_t = asarray(p)
-            p_norm = safe_norm(p_t, min_norm)
-            u_norm = safe_norm(u_t, min_norm)
-            trust_ratio = p_norm / u_norm
-            zero_norm = (p_norm == 0.0) | (u_norm == 0.0)
-            safe_ratio = where(zero_norm, 1.0, trust_ratio)
-            scaled_u = eff_lr * (u_t * safe_ratio)
-            return scaled_u + decay_factor * p_t
-
-        new_updates = tree_map(_fromage_leaf, updates, params)
+        trust_updates, _ = trust_tx.update(updates, ScaleByTrustRatioState(), params)
+        scaled_updates, _ = scale(eff_lr).update(trust_updates, state, params)
+        new_updates, _ = add_decayed_weights(decay_factor).update(
+            scaled_updates, AddDecayedWeightsState(count=count), params
+        )
         return new_updates, FromageState(count=count + 1)
 
     return GradientTransformation(init_fn, update_fn)

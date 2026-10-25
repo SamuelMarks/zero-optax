@@ -24,7 +24,7 @@ repos:
 
       - id: mypy
         name: Run Mypy
-        entry: env MYPYPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src mypy src scripts tests
+        entry: env MYPYPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src:../zero-jax/src:../zero-chex/src:../zero-flax/src:../zero-orbax/src:../zero-grain/src mypy src scripts tests
         language: system
         types: [python]
         pass_filenames: false
@@ -38,7 +38,7 @@ repos:
 
       - id: pytest-coverage
         name: Run Pytest Coverage
-        entry: env PYTHONPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src pytest --cov=src/zero_optax --cov=scripts --cov-branch --cov-report=term-missing --cov-fail-under=100
+        entry: env PYTHONPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src:../zero-jax/src:../zero-chex/src:../zero-flax/src:../zero-orbax/src:../zero-grain/src pytest --cov=src/zero_optax --cov=scripts --cov-branch --cov-report=term-missing --cov-fail-under=100
         language: system
         types: [python]
         pass_filenames: false
@@ -59,7 +59,7 @@ repos:
 
       - id: check-api-compliance
         name: Check API Conformance
-        entry: env PYTHONPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src python3 scripts/check_compliance.py
+        entry: env PYTHONPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src:../zero-jax/src:../zero-chex/src:../zero-flax/src:../zero-orbax/src:../zero-grain/src python3 scripts/check_compliance.py
         language: system
         files: ^(SEMANTIC_PLAN\.md|src/.*\.py)$
         pass_filenames: false

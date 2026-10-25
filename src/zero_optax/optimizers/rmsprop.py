@@ -47,48 +47,6 @@ class RmsPropState(NamedTuple):
     trace_state: TraceState | EmptyState
 
 
-def _as_rms_inner_state(state: OptState) -> RmsInnerState:
-    """Narrow `OptState` from `scale_by_rms` / `scale_by_stddev` to `RmsInnerState`.
-
-    Args:
-        state: State returned by `scale_by_rms` or `scale_by_stddev`.
-
-    Returns:
-        `RmsInnerState` instance.
-
-    Raises:
-        TypeError: If `state` is not a valid `RmsInnerState`.
-    """
-    if isinstance(
-        state,
-        (
-            ScaleByRmsState,
-            ScaleByRmsWithCountState,
-            ScaleByRStdDevState,
-            ScaleByRStdDevWithCountState,
-        ),
-    ):
-        return state
-    raise TypeError(f"Expected RmsInnerState, got {type(state)!r}")
-
-
-def _as_trace_or_empty(state: OptState) -> TraceState | EmptyState:
-    """Narrow `OptState` from `trace` / `identity` to `TraceState | EmptyState`.
-
-    Args:
-        state: State returned by `trace` or `identity`.
-
-    Returns:
-        `TraceState` or `EmptyState` instance.
-
-    Raises:
-        TypeError: If `state` is neither `TraceState` nor `EmptyState`.
-    """
-    if isinstance(state, (TraceState, EmptyState)):
-        return state
-    raise TypeError(f"Expected TraceState or EmptyState, got {type(state)!r}")
-
-
 def rmsprop(
     learning_rate: ScalarOrSchedule,
     decay: float = 0.9,
@@ -99,7 +57,7 @@ def rmsprop(
     momentum: float | None = None,
     nesterov: bool = False,
     bias_correction: bool = False,
-) -> GradientTransformation:
+) -> GradientTransformation[RmsPropState]:
     """Create a flexible RMSProp optimizer.
 
     Args:
@@ -116,7 +74,7 @@ def rmsprop(
     Returns:
         A `GradientTransformation` implementing RMSProp.
     """
-    rms_tx = (
+    rms_tx: GradientTransformation[RmsInnerState] = (
         scale_by_stddev(
             decay=decay,
             eps=eps,
@@ -134,7 +92,7 @@ def rmsprop(
         )
     )
     lr_tx = scale_by_learning_rate(learning_rate)
-    trace_tx = (
+    trace_tx: GradientTransformation[TraceState | EmptyState] = (
         trace(decay=momentum, nesterov=nesterov) if momentum is not None else identity()
     )
 
@@ -148,9 +106,9 @@ def rmsprop(
             Initialized `RmsPropState`.
         """
         return RmsPropState(
-            rms_state=_as_rms_inner_state(rms_tx.init(params)),
+            rms_state=rms_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
-            trace_state=_as_trace_or_empty(trace_tx.init(params)),
+            trace_state=trace_tx.init(params),
         )
 
     def update_fn(
@@ -167,9 +125,12 @@ def rmsprop(
 
         Returns:
             Tuple of `(transformed_updates, new_rmsprop_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `RmsPropState`.
         """
         if not isinstance(state, RmsPropState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected RmsPropState in rmsprop, got {type(state)!r}.")
 
         scaled_grads, next_rms = rms_tx.update(updates, state.rms_state, params)
         lr_updates, _ = lr_tx.update(scaled_grads, state.scale_state, params)
@@ -177,9 +138,9 @@ def rmsprop(
             lr_updates, state.trace_state, params
         )
         return final_updates, RmsPropState(
-            rms_state=_as_rms_inner_state(next_rms),
+            rms_state=next_rms,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
-            trace_state=_as_trace_or_empty(next_trace),
+            trace_state=next_trace,
         )
 
     return GradientTransformation(init_fn, update_fn)
@@ -187,9 +148,5 @@ def rmsprop(
 
 __all__ = [
     "RmsPropState",
-    "ScaleByRStdDevState",
-    "ScaleByRStdDevWithCountState",
-    "ScaleByRmsState",
-    "ScaleByRmsWithCountState",
     "rmsprop",
 ]

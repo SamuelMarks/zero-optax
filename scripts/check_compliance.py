@@ -139,18 +139,17 @@ def check_compliance(
     todo_path: Path | None = None,
     snapshot_path: Path | None = None,
 ) -> int:
-    """Validate `SEMANTIC_PLAN.md`, `OPTAX_TODO.md`, and `optax_v0.2.8.json` compliance.
+    """Validate `SEMANTIC_PLAN.md` and `optax_v0.2.8.json` compliance.
 
     Args:
         plan_path: Optional path to `SEMANTIC_PLAN.md`.
-        todo_path: Optional path to `OPTAX_TODO.md`.
+        todo_path: Optional path to write a compliance report markdown file.
         snapshot_path: Optional path to `optax_v0.2.8.json`.
 
     Returns:
-        `0` if 100% compliant and `OPTAX_TODO.md` is up to date, `1` otherwise.
+        `0` if 100% compliant and optional `todo_path` is up to date, `1` otherwise.
     """
     resolved_plan = Path("SEMANTIC_PLAN.md") if plan_path is None else plan_path
-    resolved_todo = Path("OPTAX_TODO.md") if todo_path is None else todo_path
 
     if not resolved_plan.exists():
         print("SEMANTIC_PLAN.md not found, skipping compliance check.")
@@ -185,41 +184,42 @@ def check_compliance(
 
     pct = (implemented / total) * 100.0 if total > 0 else 100.0
 
-    current_todo = (
-        resolved_todo.read_text(encoding="utf-8") if resolved_todo.exists() else ""
-    )
-
-    new_todo_lines = [
-        "# OPTAX_TODO.md",
-        "--- Compliance Report ---",
-        f"Overall Compliance: {pct:.1f}%",
-        "",
-        "Breakdown by Module:",
-    ]
-    for mod_name, funcs in modules.items():
-        if not funcs:
-            continue
-        orig_mod_name = mod_name.replace("zero_optax", "optax")
-        mod_implemented = sum(
-            1 for f_name in funcs if f"{mod_name}.{f_name}" not in missing
-        )
-        mod_pct = (mod_implemented / len(funcs)) * 100.0
-        new_todo_lines.append(
-            f"  - {orig_mod_name}: {mod_pct:.1f}% ({mod_implemented}/{len(funcs)})"
-        )
-
-    if missing:
-        new_todo_lines.append("")
-        new_todo_lines.append("Missing APIs:")
-        for m in missing:
-            new_todo_lines.append(f"  - {m}")
-
-    new_todo = chr(10).join(new_todo_lines) + chr(10)
     todo_updated = False
-    if new_todo != current_todo:
-        resolved_todo.write_text(new_todo, encoding="utf-8")
-        print("Updated OPTAX_TODO.md.")
-        todo_updated = True
+    if todo_path is not None:
+        current_todo = (
+            todo_path.read_text(encoding="utf-8") if todo_path.exists() else ""
+        )
+
+        new_todo_lines = [
+            "# OPTAX_TODO.md",
+            "--- Compliance Report ---",
+            f"Overall Compliance: {pct:.1f}%",
+            "",
+            "Breakdown by Module:",
+        ]
+        for mod_name, funcs in modules.items():
+            if not funcs:
+                continue
+            orig_mod_name = mod_name.replace("zero_optax", "optax")
+            mod_implemented = sum(
+                1 for f_name in funcs if f"{mod_name}.{f_name}" not in missing
+            )
+            mod_pct = (mod_implemented / len(funcs)) * 100.0
+            new_todo_lines.append(
+                f"  - {orig_mod_name}: {mod_pct:.1f}% ({mod_implemented}/{len(funcs)})"
+            )
+
+        if missing:
+            new_todo_lines.append("")
+            new_todo_lines.append("Missing APIs:")
+            for m in missing:
+                new_todo_lines.append(f"  - {m}")
+
+        new_todo = chr(10).join(new_todo_lines) + chr(10)
+        if new_todo != current_todo:
+            todo_path.write_text(new_todo, encoding="utf-8")
+            print("Updated OPTAX_TODO.md.")
+            todo_updated = True
 
     snapshot_errors = verify_snapshot_v028(snapshot_path)
     if missing or snapshot_errors:

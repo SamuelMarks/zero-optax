@@ -30,23 +30,6 @@ class NovogradState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_novograd_state(state: OptState) -> ScaleByNovogradState:
-    """Narrow `OptState` from `scale_by_novograd` to `ScaleByNovogradState`.
-
-    Args:
-        state: State returned by `scale_by_novograd`.
-
-    Returns:
-        `ScaleByNovogradState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `ScaleByNovogradState`.
-    """
-    if isinstance(state, ScaleByNovogradState):
-        return state
-    raise TypeError(f"Expected ScaleByNovogradState, got {type(state)!r}")
-
-
 def novograd(
     learning_rate: ScalarOrSchedule,
     b1: float = 0.9,
@@ -54,7 +37,7 @@ def novograd(
     eps: float = 1e-6,
     eps_root: float = 0.0,
     weight_decay: ScalarOrSchedule = 0.0,
-) -> GradientTransformation:
+) -> GradientTransformation[NovogradState]:
     """Create the NovoGrad optimizer.
 
     Args:
@@ -87,7 +70,7 @@ def novograd(
             Initialized `NovogradState`.
         """
         return NovogradState(
-            novograd_state=_as_novograd_state(novo_tx.init(params)),
+            novograd_state=novo_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -107,14 +90,15 @@ def novograd(
             Tuple of `(transformed_updates, new_novograd_state)`.
 
         Raises:
+            TypeError: If `state` is not a `NovogradState`.
             ValueError: If `params` is None when `weight_decay` is non-zero.
         """
         if not isinstance(state, NovogradState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected NovogradState in novograd, got {type(state)!r}.")
         novo_updates, next_novo = novo_tx.update(updates, state.novograd_state, params)
         new_updates, _ = lr_tx.update(novo_updates, state.scale_state, params)
         return new_updates, NovogradState(
-            novograd_state=_as_novograd_state(next_novo),
+            novograd_state=next_novo,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -123,7 +107,5 @@ def novograd(
 
 __all__ = [
     "NovogradState",
-    "ScaleByNovogradState",
-    "ScaleByScheduleState",
     "novograd",
 ]

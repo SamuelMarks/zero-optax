@@ -19,7 +19,6 @@ from zero_optax.base import (
     TraceState,
     identity,
 )
-from zero_optax.optimizers.rmsprop import _as_trace_or_empty
 from zero_optax.transform import scale_by_learning_rate, trace
 
 
@@ -40,7 +39,7 @@ def sgd(
     momentum: float | None = None,
     nesterov: bool = False,
     accumulator_dtype: DTypeLike = None,
-) -> GradientTransformation:
+) -> GradientTransformation[SgdState]:
     """Create a canonical Stochastic Gradient Descent (SGD) optimizer.
 
     Args:
@@ -52,7 +51,7 @@ def sgd(
     Returns:
         A `GradientTransformation` implementing SGD.
     """
-    trace_tx = (
+    trace_tx: GradientTransformation[TraceState | EmptyState] = (
         trace(decay=momentum, nesterov=nesterov, accumulator_dtype=accumulator_dtype)
         if momentum is not None and momentum != 0.0
         else identity()
@@ -69,7 +68,7 @@ def sgd(
             Initialized `SgdState`.
         """
         return SgdState(
-            trace_state=_as_trace_or_empty(trace_tx.init(params)),
+            trace_state=trace_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -87,13 +86,16 @@ def sgd(
 
         Returns:
             Tuple of `(transformed_updates, new_sgd_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `SgdState`.
         """
         if not isinstance(state, SgdState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected SgdState in sgd, got {type(state)!r}.")
         step_dir, next_t = trace_tx.update(updates, state.trace_state, params)
         new_updates, _ = lr_tx.update(step_dir, state.scale_state, params)
         return new_updates, SgdState(
-            trace_state=_as_trace_or_empty(next_t),
+            trace_state=next_t,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -101,9 +103,6 @@ def sgd(
 
 
 __all__ = [
-    "EmptyState",
-    "ScaleByScheduleState",
     "SgdState",
-    "TraceState",
     "sgd",
 ]

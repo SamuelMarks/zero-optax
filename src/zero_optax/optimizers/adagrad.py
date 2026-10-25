@@ -30,28 +30,11 @@ class AdagradState(NamedTuple):
     scale_state: ScaleByScheduleState
 
 
-def _as_rss_state(state: OptState) -> ScaleByRssState:
-    """Narrow `OptState` from `scale_by_rss` to `ScaleByRssState`.
-
-    Args:
-        state: State returned by `scale_by_rss`.
-
-    Returns:
-        `ScaleByRssState` instance.
-
-    Raises:
-        TypeError: If `state` is not a `ScaleByRssState`.
-    """
-    if isinstance(state, ScaleByRssState):
-        return state
-    raise TypeError(f"Expected ScaleByRssState, got {type(state)!r}")
-
-
 def adagrad(
     learning_rate: ScalarOrSchedule,
     initial_accumulator_value: float = 0.1,
     eps: float = 1e-7,
-) -> GradientTransformation:
+) -> GradientTransformation[AdagradState]:
     """Create the Adagrad optimizer.
 
     Args:
@@ -75,7 +58,7 @@ def adagrad(
             Initialized `AdagradState`.
         """
         return AdagradState(
-            rss_state=_as_rss_state(rss_tx.init(params)),
+            rss_state=rss_tx.init(params),
             scale_state=ScaleByScheduleState(count=asarray(0)),
         )
 
@@ -93,13 +76,16 @@ def adagrad(
 
         Returns:
             Tuple of `(transformed_updates, new_adagrad_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `AdagradState`.
         """
         if not isinstance(state, AdagradState):
-            state = init_fn(updates)
+            raise TypeError(f"Expected AdagradState in adagrad, got {type(state)!r}.")
         rss_updates, next_rss = rss_tx.update(updates, state.rss_state, params)
         new_updates, _ = lr_tx.update(rss_updates, state.scale_state, params)
         return new_updates, AdagradState(
-            rss_state=_as_rss_state(next_rss),
+            rss_state=next_rss,
             scale_state=ScaleByScheduleState(count=state.scale_state.count + 1),
         )
 
@@ -108,7 +94,5 @@ def adagrad(
 
 __all__ = [
     "AdagradState",
-    "ScaleByRssState",
-    "ScaleByScheduleState",
     "adagrad",
 ]
