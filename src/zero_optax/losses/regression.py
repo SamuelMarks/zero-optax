@@ -116,6 +116,7 @@ def log_cosh(
 def cosine_similarity(
     predictions: ArrayLike,
     targets: ArrayLike,
+    *,
     epsilon: float = 0.0,
     axis: int | tuple[int, ...] | None = -1,
     where: ArrayLike | None = None,
@@ -158,6 +159,7 @@ def cosine_similarity(
 def cosine_distance(
     predictions: ArrayLike,
     targets: ArrayLike,
+    *,
     epsilon: float = 0.0,
     axis: int | tuple[int, ...] | None = -1,
     where: ArrayLike | None = None,

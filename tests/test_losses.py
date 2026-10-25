@@ -289,6 +289,12 @@ def test_classification_losses() -> None:
     assert_allclose_optax(
         smoothed, np.asarray(optax.smooth_labels(j_labels_float, alpha=0.1))
     )
+    smoothed_all = smooth_labels(labels_float, alpha=0.1, axis=None)
+    assert smoothed_all.shape == (2, 2)
+    smoothed_tup = smooth_labels(labels_float, alpha=0.1, axis=(0, 1))
+    assert smoothed_tup.shape == (2, 2)
+    smoothed_where = smooth_labels(labels_float, alpha=0.1, where=where_mask)
+    assert smoothed_where.shape == (2, 2)
 
 
 def test_classification_edge_cases() -> None:

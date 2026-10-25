@@ -18,6 +18,7 @@ from zero_flax.types import Dtype as FlaxDtype
 from zero_flax.types import ensure_array
 from zero_orbax.checkpoint import PyTreeCheckpointer
 
+import zero_optax
 from tests.utils import assert_allclose_optax, get_tree_item
 from zero_optax._tree import (
     _apply_leaf_fn,
@@ -262,7 +263,7 @@ def test_base_combine_update_and_clipping() -> None:
         updates: Updates,
         state: OptState,
         params: Params | None = None,
-        **extra_args: float | int | str | bool | Tensor | None,
+        **extra_args: zero_optax.base.ExtraArgValue,
     ) -> tuple[Updates, EmptyState]:
         """Pass updates through unchanged in extra-args transformation.
 
@@ -281,6 +282,10 @@ def test_base_combine_update_and_clipping() -> None:
     extra_tx: GradientTransformationExtraArgs[EmptyState] = (
         GradientTransformationExtraArgs(_extra_init, _extra_update)
     )
+    init_unpacked, update_unpacked = extra_tx
+    assert callable(init_unpacked) and callable(update_unpacked)
+    with pytest.raises(TypeError, match="GradientTransformationExtraArgs requires"):
+        GradientTransformationExtraArgs(_extra_update)
     chained = chain(sgd(0.1), sgd(0.2), extra_tx)
     c_state = chained.init(params)
     u_chain, _ = chained.update(updates, c_state, params)
@@ -336,11 +341,18 @@ def test_base_combine_update_and_clipping() -> None:
 
     agc_tx = adaptive_grad_clip(0.01)
     u_agc, _ = agc_tx.update(
-        {"w": asarray([10.0, 0.0]), "n": None},
+        {"w": asarray([10.0, 0.0]), "m": asarray([[10.0, 0.0]]), "n": None},
         agc_tx.init(params),
-        {"w": asarray([1.0, 0.0]), "n": None},
+        {"w": asarray([1.0, 0.0]), "m": asarray([[1.0, 0.0]]), "n": None},
     )
     assert_allclose_optax(get_tree_item(u_agc, "w"), np.array([0.01, 0.0]))
+    agc_axis_tx = adaptive_grad_clip(0.01, axis=-1)
+    u_agc_axis, _ = agc_axis_tx.update(
+        {"w": asarray([[10.0, 0.0]])},
+        agc_axis_tx.init({"w": asarray([[1.0, 0.0]])}),
+        {"w": asarray([[1.0, 0.0]])},
+    )
+    assert_allclose_optax(get_tree_item(u_agc_axis, "w"), np.array([[0.01, 0.0]]))
     with pytest.raises(ValueError, match="adaptive_grad_clip"):
         agc_tx.update(updates, agc_tx.init(params), None)
 
@@ -450,6 +462,13 @@ def test_transform_primitives() -> None:
     assert_allclose_optax(
         get_tree_item(u_aw_nomask, "w"), np.array([0.21, -0.38]), rtol=1e-5
     )
+    lr_none_tx = scale_by_learning_rate(None)
+    u_lr_none, _ = lr_none_tx.update(updates, lr_none_tx.init(params), params)
+    assert_allclose_optax(get_tree_item(u_lr_none, "w"), np.array([0.2, -0.4]))
+    for lion_mode in ("smooth", "refined"):
+        lion_m_tx = scale_by_lion(mode=lion_mode, smooth_beta=2.0)
+        u_lm, _ = lion_m_tx.update(updates, lion_m_tx.init(params), params)
+        assert get_tree_item(u_lm, "w").shape == (2,)
     with pytest.raises(ValueError, match="scale_by_trust_ratio"):
         scale_by_trust_ratio().update(updates, ScaleByTrustRatioState(), None)
     with pytest.raises(ValueError, match="add_decayed_weights"):
@@ -900,3 +919,558 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     assert opt_state_from_state_dict(42, 99) == 99
     with pytest.raises(TypeError, match="Cannot restore"):
         opt_state_from_state_dict(sched_st, 123)
+
+
+def test_phase4_transforms_clipping_and_linesearch() -> None:
+    """Test stateless, zero_nans, centralize, keep_params_nonnegative, block rms, noise, ema, amsgrad, and linesearch."""
+    params: dict[str, PyTree] = {
+        "w": asarray([1.0, 2.0]),
+        "m": asarray([[1.0, 3.0], [2.0, 4.0]]),
+        "s": asarray(1.5),
+        "n": None,
+    }
+    updates: dict[str, PyTree] = {
+        "w": asarray([-2.0, 0.5]),
+        "m": asarray([[1.0, 3.0], [2.0, 4.0]]),
+        "s": asarray(0.5),
+        "n": None,
+    }
+
+    st_tx = zero_optax.stateless(lambda u, p: u)
+    u_st, _ = st_tx.update(updates, st_tx.init(params), params)
+    assert u_st is updates
+
+    zn_tx = zero_optax.zero_nans()
+    zn_state = zn_tx.init(params)
+    nan_updates: dict[str, PyTree] = {
+        "w": asarray([float("nan"), 1.0]),
+        "m": asarray([[1.0, 2.0], [3.0, 4.0]]),
+        "s": asarray(float("nan")),
+        "n": None,
+    }
+    u_zn, zn_state2 = zn_tx.update(nan_updates, zn_state, params)
+    assert_allclose_optax(get_tree_item(u_zn, "w"), np.array([0.0, 1.0]))
+    assert bool(get_tree_item(zn_state2.found_nan, "w").item()) is True
+
+    cent_tx = zero_optax.centralize()
+    u_cent, _ = cent_tx.update(updates, cent_tx.init(params), params)
+    assert_allclose_optax(
+        get_tree_item(u_cent, "m"), np.array([[-1.0, 1.0], [-1.0, 1.0]])
+    )
+
+    kpn_tx = zero_optax.keep_params_nonnegative()
+    u_kpn, _ = kpn_tx.update(updates, kpn_tx.init(params), params)
+    assert_allclose_optax(get_tree_item(u_kpn, "w"), np.array([-1.0, 0.5]))
+    with pytest.raises(ValueError, match="keep_params_nonnegative"):
+        kpn_tx.update(updates, kpn_tx.init(params), None)
+
+    cbr_tx = zero_optax.clip_by_block_rms(0.5)
+    u_cbr, _ = cbr_tx.update(updates, cbr_tx.init(params), params)
+    assert get_tree_item(u_cbr, "w").shape == (2,)
+
+    with pytest.raises(ValueError, match="l2_norm_clip must be >= 0"):
+        zero_optax.per_example_global_norm_clip(updates, -1.0)
+    empty_pe, empty_cnt = zero_optax.per_example_global_norm_clip({"n": None}, 1.0)
+    assert int(empty_cnt.item()) == 0 and empty_pe == {"n": None}
+    batched_g: dict[str, PyTree] = {
+        "w": asarray([[3.0, 4.0], [0.1, 0.2], [0.0, 0.0]]),
+        "n": None,
+    }
+    sum_pe, cnt_pe = zero_optax.per_example_global_norm_clip(batched_g, 1.0)
+    assert int(cnt_pe.item()) == 1
+    assert_allclose_optax(get_tree_item(sum_pe, "w"), np.array([0.7, 1.0]))
+    _, cnt_pe0 = zero_optax.per_example_global_norm_clip(
+        {"w": asarray([[0.0, 0.0]])}, 0.0
+    )
+    assert int(cnt_pe0.item()) == 0
+
+    with pytest.raises(ValueError, match="Provide only one"):
+        zero_optax.add_noise(0.1, 0.5, key=1, seed=2)
+    an_tx1 = zero_optax.add_noise(0.1, 0.5)
+    an_tx2 = zero_optax.add_noise(0.1, 0.5, key=7)
+    an_tx3 = zero_optax.add_noise(0.1, 0.5, seed=9)
+    for tx_n in (an_tx1, an_tx2, an_tx3):
+        st_n = tx_n.init(params)
+        assert st_n._asdict()["count"] is not None
+        u_n, _ = tx_n.update(updates, st_n, params)
+        assert get_tree_item(u_n, "w").shape == (2,)
+    with pytest.raises(TypeError, match="AddNoiseState"):
+        an_tx1.update(updates, EmptyState(), params)
+
+    for deb in (True, False):
+        ema_tx = zero_optax.ema(0.9, debias=deb, accumulator_dtype="float32")
+        st_e = ema_tx.init(params)
+        assert st_e._asdict()["count"] is not None
+        u_e, _ = ema_tx.update(updates, st_e, params)
+        assert get_tree_item(u_e, "w").shape == (2,)
+    ema_tx_nodt = zero_optax.ema(1.0, debias=True, accumulator_dtype=None)
+    ema_tx_nodt.update(updates, ema_tx_nodt.init(params), params)
+    with pytest.raises(TypeError, match="EmaState"):
+        ema_tx_nodt.update(updates, EmptyState(), params)
+
+    for bc_flag, mdt in ((True, "float32"), (False, None)):
+        ams_tx = zero_optax.scale_by_amsgrad(
+            b1=1.0 if not bc_flag else 0.9,
+            b2=1.0 if not bc_flag else 0.999,
+            mu_dtype=mdt,
+            bias_correction_mu=bc_flag,
+            bias_correction_nu=bc_flag,
+        )
+        st_a = ams_tx.init(params)
+        assert st_a._asdict()["count"] is not None
+        u_a, _ = ams_tx.update(updates, st_a, params)
+        assert get_tree_item(u_a, "w").shape == (2,)
+    ams_b1_one = zero_optax.scale_by_amsgrad(b1=1.0, b2=1.0)
+    ams_b1_one.update(updates, ams_b1_one.init(params), params)
+    with pytest.raises(TypeError, match="ScaleByAmsgradState"):
+        ams_b1_one.update(updates, EmptyState(), params)
+
+    pbn_tx = zero_optax.scale_by_param_block_norm(0.01)
+    u_pbn, _ = pbn_tx.update(updates, pbn_tx.init(params), params)
+    assert get_tree_item(u_pbn, "w").shape == (2,)
+    with pytest.raises(ValueError, match="scale_by_param_block_norm"):
+        pbn_tx.update(updates, pbn_tx.init(params), None)
+
+    pbr_tx = zero_optax.scale_by_param_block_rms(0.01)
+    u_pbr, _ = pbr_tx.update(updates, pbr_tx.init(params), params)
+    assert get_tree_item(u_pbr, "w").shape == (2,)
+    with pytest.raises(ValueError, match="scale_by_param_block_rms"):
+        pbr_tx.update(updates, pbr_tx.init(params), None)
+
+    def _quad_fn(p: Params, scale_f: float = 1.0) -> Tensor:
+        """Compute quadratic objective `scale_f * sum(w^2 + s^2)`.
+
+        Args:
+            p: Parameters dict.
+            scale_f: Multiplier.
+
+        Returns:
+            Scalar objective Tensor.
+        """
+        if not isinstance(p, dict):
+            return asarray(0.0)
+        w_t = asarray(p["w"])
+        s_t = asarray(p["s"])
+        return scale_f * (zero_optax._tree.reduce_sum(w_t * w_t) + s_t * s_t)
+
+    def _var_kw_fn(p: Params, **kw: PyTree) -> Tensor:
+        """Quadratic objective accepting `**kw`.
+
+        Args:
+            p: Parameters dict.
+            **kw: Extra keyword arguments.
+
+        Returns:
+            Scalar objective Tensor.
+        """
+        del kw
+        return _quad_fn(p)
+
+    bt_tx = zero_optax.scale_by_backtracking_linesearch(
+        max_backtracking_steps=5, store_grad=True
+    )
+    bt_st = bt_tx.init(params)
+    vg_helper = zero_optax.value_and_grad_from_state(_quad_fn)
+    val0, grad0 = vg_helper(params, state=bt_st)
+    from zero_optax._linesearch import _call_value_fn
+
+    assert _call_value_fn(lambda p, x: 1.0, params, (1.0,)) == 1.0
+    assert _call_value_fn(lambda p, x, y: 2.0, params, (1.0, 2.0)) == 2.0
+    with pytest.raises(ValueError, match="Unsupported value_fn"):
+        _call_value_fn(_quad_fn, params, (1.0, 2.0, 3.0))
+    descent = zero_optax.tree_utils.tree_scalar_mul(-1.0, grad0)
+    u_bt, bt_st2 = bt_tx.update(
+        descent, bt_st, params, value=val0, grad=grad0, value_fn=_quad_fn, scale_f=1.0
+    )
+    assert get_tree_item(u_bt, "w").shape == (2,)
+    val1, grad1 = vg_helper(params, state=bt_st2)
+    assert float(val1.item()) < float(val0.item())
+    assert grad1 is not None
+
+    bt_no_sg = zero_optax.scale_by_backtracking_linesearch(
+        max_backtracking_steps=2, store_grad=False
+    )
+    bt_no_st = bt_no_sg.init(params)
+    bt_no_sg.update(grad0, bt_no_st, params, value_fn=_var_kw_fn, extra_param=1.0)
+    with pytest.raises(ValueError, match="Value or gradient not found"):
+        vg_helper(params, state=bt_no_st)
+    with pytest.raises(ValueError, match="params"):
+        bt_tx.update(descent, bt_st, None, value_fn=_quad_fn)
+    with pytest.raises(TypeError, match="ScaleByBacktrackingLinesearchState"):
+        bt_tx.update(descent, EmptyState(), params, value_fn=_quad_fn)
+    with pytest.raises(ValueError, match="value_fn"):
+        bt_tx.update(descent, bt_st, params)
+
+    for strat, mlr in (("keep", None), ("one", 0.5)):
+        zm_tx = zero_optax.scale_by_zoom_linesearch(
+            max_linesearch_steps=4,
+            max_learning_rate=mlr,
+            initial_guess_strategy=strat,
+        )
+        zm_st = zm_tx.init(params)
+        u_zm, _ = zm_tx.update(descent, zm_st, params, value_fn=_quad_fn)
+        assert get_tree_item(u_zm, "w").shape == (2,)
+        zm_tx.update(grad0, zm_st, params, value=val0, grad=grad0, value_fn=_quad_fn)
+
+    zm_expand = zero_optax.scale_by_zoom_linesearch(
+        max_linesearch_steps=3,
+        max_learning_rate=10.0,
+        curv_rtol=0.0,
+        initial_guess_strategy="one",
+    )
+    zm_expand.update(
+        zero_optax.tree_utils.tree_scalar_mul(0.01, descent),
+        zm_expand.init(params),
+        params,
+        value_fn=_quad_fn,
+    )
+    zm_expand_nomax = zero_optax.scale_by_zoom_linesearch(
+        max_linesearch_steps=3,
+        max_learning_rate=None,
+        curv_rtol=0.0,
+        initial_guess_strategy="one",
+    )
+    zm_expand_nomax.update(
+        zero_optax.tree_utils.tree_scalar_mul(0.01, descent),
+        zm_expand_nomax.init(params),
+        params,
+        value_fn=_quad_fn,
+    )
+    zm_pos_slope = zero_optax.scale_by_zoom_linesearch(
+        max_linesearch_steps=3,
+        slope_rtol=0.0,
+        curv_rtol=0.0,
+    )
+    zm_pos_slope.update(
+        zero_optax.tree_utils.tree_scalar_mul(0.8, descent),
+        zm_pos_slope.init(params),
+        params,
+        value_fn=_quad_fn,
+    )
+    with pytest.raises(ValueError, match="params"):
+        zm_expand.update(descent, zm_expand.init(params), None, value_fn=_quad_fn)
+    with pytest.raises(TypeError, match="ScaleByZoomLinesearchState"):
+        zm_expand.update(descent, EmptyState(), params, value_fn=_quad_fn)
+    with pytest.raises(ValueError, match="value_fn"):
+        zm_expand.update(descent, zm_expand.init(params), params)
+
+
+def test_phase5_combinators_and_wrappers() -> None:
+    """Test named_chain, masked, freeze, flatten, partition, multi_transform, lookahead, and MultiSteps."""
+    params: dict[str, PyTree] = {
+        "w": asarray([1.0, 2.0]),
+        "b": asarray([0.5]),
+        "s": asarray(1.0),
+        "n": None,
+    }
+    updates: dict[str, PyTree] = {
+        "w": asarray([0.1, -0.2]),
+        "b": asarray([0.05]),
+        "s": asarray(0.2),
+        "n": None,
+    }
+
+    def _ex_init(params: Params) -> EmptyState:
+        """Initialize empty state.
+
+        Args:
+            params: Parameters PyTree.
+
+        Returns:
+            `EmptyState`.
+        """
+        del params
+        return EmptyState()
+
+    def _ex_upd(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+        **extra_args: zero_optax.base.ExtraArgValue,
+    ) -> tuple[Updates, EmptyState]:
+        """Pass updates through unchanged.
+
+        Args:
+            updates: Updates PyTree.
+            state: State.
+            params: Optional parameters.
+            **extra_args: Extra keyword args.
+
+        Returns:
+            Tuple `(updates, EmptyState())`.
+        """
+        del state, params, extra_args
+        return updates, EmptyState()
+
+    ex_tx: GradientTransformationExtraArgs[EmptyState] = (
+        GradientTransformationExtraArgs(_ex_init, _ex_upd)
+    )
+
+    with pytest.raises(ValueError, match="unique names"):
+        zero_optax.named_chain(("a", sgd(0.1)), ("a", sgd(0.2)))
+    nc_tx = zero_optax.named_chain(("step1", sgd(0.1)), ("step2", ex_tx))
+    nc_st = nc_tx.init(params)
+    assert nc_st["step1"] is not None
+    u_nc, nc_st2 = nc_tx.update(updates, nc_st, params, value=1.0)
+    assert get_tree_item(u_nc, "w").shape == (2,)
+    assert "step2" in nc_st2
+    with pytest.raises(TypeError, match="named_chain"):
+        nc_tx.update(updates, EmptyState(), params)
+
+    m_tx = zero_optax.masked(sgd(0.1), {"w": True, "b": False, "s": True, "n": False})
+    m_st = m_tx.init(params)
+    u_m, _ = m_tx.update(updates, m_st, params)
+    assert_allclose_optax(get_tree_item(u_m, "b"), np.array([0.05]))
+    m_tx_extra = zero_optax.masked(ex_tx, True)
+    m_tx_extra.update(updates, m_tx_extra.init(params), None)
+    m_tx_none = zero_optax.masked(sgd(0.1), None)
+    m_tx_none.update(updates, m_tx_none.init(params), None)
+    with pytest.raises(TypeError, match="MaskedState"):
+        m_tx.update(updates, EmptyState(), params)
+
+    frz_tx = zero_optax.freeze({"w": True, "b": False, "s": False, "n": False})
+    u_frz, _ = frz_tx.update(updates, frz_tx.init(params), params)
+    assert_allclose_optax(get_tree_item(u_frz, "w"), np.array([0.0, 0.0]))
+    assert_allclose_optax(get_tree_item(u_frz, "b"), np.array([0.05]))
+
+    fl_tx = zero_optax.flatten(sgd(0.1))
+    fl_st = fl_tx.init(params)
+    u_fl, _ = fl_tx.update(updates, fl_st, params)
+    assert_allclose_optax(get_tree_item(u_fl, "w"), np.array([-0.01, 0.02]))
+    fl_tx.update(updates, fl_st, None)
+    fl_tx.update({"n": None}, fl_tx.init({"n": None}), None)
+    fl_ex = zero_optax.flatten(ex_tx)
+    fl_ex.update(updates, fl_ex.init(params), params)
+
+    part_tx = zero_optax.partition(
+        {"w_grp": sgd(0.1), "b_grp": sgd(1.0)},
+        {"w": "w_grp", "b": "b_grp", "s": "w_grp", "n": "b_grp"},
+    )
+    part_st = part_tx.init(params)
+    u_part, _ = part_tx.update(updates, part_st, params)
+    assert_allclose_optax(get_tree_item(u_part, "w"), np.array([-0.01, 0.02]))
+    assert_allclose_optax(get_tree_item(u_part, "b"), np.array([-0.05]))
+    with pytest.raises(TypeError, match="PartitionState"):
+        part_tx.update(updates, EmptyState(), params)
+
+    mt_tx = zero_optax.multi_transform(
+        {"g": sgd(0.1)},
+        lambda p: ("g", ["g"]),
+    )
+    assert mt_tx is not None
+    from zero_optax.combine import _build_label_mask
+
+    assert isinstance(_build_label_mask(("g", ["g"]), "g"), tuple)
+    assert isinstance(
+        _build_label_mask(_ChexParamNode(w=asarray([1.0]), b=asarray([2.0])), "g"),
+        dict,
+    )
+    assert isinstance(
+        _build_label_mask(FrozenDict({"w": asarray([1.0])}), "g"),
+        dict,
+    )
+
+    with pytest.raises(ValueError, match="Synchronization period"):
+        zero_optax.lookahead(sgd(0.1), sync_period=0, slow_step_size=0.5)
+    la_params = zero_optax.LookaheadParams.init_synced(params)
+    for rst in (False, True):
+        la_tx = zero_optax.lookahead(
+            sgd(0.1), sync_period=2, slow_step_size=0.5, reset_state=rst
+        )
+        la_st = la_tx.init(la_params)
+        assert la_st._asdict()["slow_params"] is not None
+        u_la1, la_st1 = la_tx.update(updates, la_st, la_params)
+        assert isinstance(u_la1, zero_optax.LookaheadParams)
+        u_la2, _ = la_tx.update(updates, la_st1, la_params)
+        assert isinstance(u_la2, zero_optax.LookaheadParams)
+    la_plain = zero_optax.lookahead(sgd(0.1), sync_period=1, slow_step_size=0.5)
+    la_plain_st = la_plain.init(params)
+    la_plain.update(updates, la_plain_st, params)
+    with pytest.raises(TypeError, match="LookaheadState"):
+        la_plain.update(updates, EmptyState(), params)
+    with pytest.raises(ValueError, match="lookahead"):
+        la_plain.update(updates, la_plain_st, None)
+
+    flag_nf, _ = zero_optax.skip_not_finite(
+        {"w": asarray([float("nan"), 1.0]), "n": None}, asarray(0), params
+    )
+    assert bool(flag_nf.item()) is True
+    flag_ok, _ = zero_optax.skip_not_finite(updates, asarray(0), params)
+    assert bool(flag_ok.item()) is False
+    flag_ld, _ = zero_optax.skip_large_deltas(
+        {"w": asarray([1000.0]), "n": None}, asarray(0), params, max_Sqr_norm=10.0
+    )
+    assert bool(flag_ld.item()) is True
+
+    ms = zero_optax.MultiSteps(sgd(0.1), every_k_schedule=2, use_grad_mean=True)
+    assert ms.inner_opt is not None
+    ms_st = ms.init(params)
+    assert ms_st._asdict()["mini_step"] is not None
+    assert bool(ms.has_updated(ms_st).item()) is False
+    u_ms1, ms_st1 = ms.update(updates, ms_st, params)
+    assert_allclose_optax(get_tree_item(u_ms1, "w"), np.array([0.0, 0.0]))
+    assert bool(ms.has_updated(ms_st1).item()) is False
+    u_ms2, ms_st2 = ms.update(updates, ms_st1, params)
+    assert_allclose_optax(get_tree_item(u_ms2, "w"), np.array([-0.01, 0.02]))
+    assert bool(ms.has_updated(ms_st2).item()) is True
+    ms_gt = ms.gradient_transformation()
+    assert isinstance(ms_gt, GradientTransformationExtraArgs)
+
+    ms_sched = zero_optax.MultiSteps(
+        ex_tx,
+        every_k_schedule=lambda step: 1,
+        use_grad_mean=False,
+        should_skip_update_fn=zero_optax.skip_not_finite,
+    )
+    ms_sched_st = ms_sched.init(params)
+    ms_sched.update(updates, ms_sched_st, params)
+    ms_sched.update(
+        {
+            "w": asarray([float("nan"), 1.0]),
+            "b": asarray([0.0]),
+            "s": asarray(0.0),
+            "n": None,
+        },
+        ms_sched_st,
+        params,
+    )
+    with pytest.raises(TypeError, match=r"MultiSteps\.update"):
+        ms.update(updates, EmptyState(), params)
+    with pytest.raises(TypeError, match="has_updated"):
+        ms.has_updated(EmptyState())
+
+
+def test_phase6_additional_optimizers() -> None:
+    """Test adafactor, adamax, adamaxw, amsgrad, lbfgs, noisy_sgd, ogd, polyak_sgd, radam, rprop, sign_sgd, and sm3."""
+    params: dict[str, PyTree] = {
+        "w": asarray([1.0, 2.0]),
+        "m": asarray([[1.0, 2.0], [3.0, 4.0]]),
+        "n": None,
+    }
+    updates: dict[str, PyTree] = {
+        "w": asarray([0.2, -0.4]),
+        "m": asarray([[0.1, -0.2], [0.3, -0.1]]),
+        "n": None,
+    }
+
+    for opt in (
+        zero_optax.adamax(0.1),
+        zero_optax.adamax(0.1, b1=1.0),
+        zero_optax.adamaxw(0.1, weight_decay=0.01),
+        zero_optax.amsgrad(0.1),
+        zero_optax.noisy_sgd(0.1, key=0),
+        zero_optax.sign_sgd(0.1),
+        zero_optax.optimistic_gradient_descent(0.1),
+        zero_optax.radam(0.1, threshold=5.0, nesterov=False),
+        zero_optax.radam(0.1, threshold=0.1, nesterov=True),
+        zero_optax.radam(0.1, b1=1.0, b2=1.0, threshold=0.1, nesterov=True),
+        zero_optax.rprop(0.1),
+        zero_optax.rprop(lambda count: 0.1),
+        zero_optax.sm3(0.1, momentum=0.9),
+        zero_optax.sm3(0.1, momentum=0.0),
+        zero_optax.adafactor(
+            learning_rate=None,
+            min_dim_size_to_factor=2,
+            multiply_by_parameter_scale=True,
+            clipping_threshold=1.0,
+            momentum=0.9,
+            weight_decay_rate=0.01,
+            factored=True,
+        ),
+        zero_optax.adafactor(
+            learning_rate=None,
+            min_dim_size_to_factor=2,
+            multiply_by_parameter_scale=False,
+            clipping_threshold=None,
+            momentum=None,
+            weight_decay_rate=None,
+            factored=False,
+        ),
+    ):
+        st = opt.init(params)
+        u1, st1 = opt.update(updates, st, params)
+        assert get_tree_item(u1, "w").shape == (2,)
+        u2, _ = opt.update(updates, st1, params)
+        assert get_tree_item(u2, "w").shape == (2,)
+
+    sm3_b2 = zero_optax.scale_by_sm3(b1=0.9, b2=0.9)
+    sm3_b2.update(updates, sm3_b2.init(params), params)
+
+    for state_cls_tx in (
+        zero_optax.scale_by_adamax(),
+        zero_optax.scale_by_optimistic_gradient(),
+        zero_optax.scale_by_radam(),
+        zero_optax.scale_by_rprop(0.1),
+        zero_optax.scale_by_sm3(),
+        zero_optax.scale_by_factored_rms(),
+    ):
+        st_sub = state_cls_tx.init(params)
+        if isinstance(st_sub, zero_optax.base._OptStateDataclassBase):
+            assert isinstance(st_sub._asdict(), dict)
+        with pytest.raises(TypeError):
+            state_cls_tx.update(updates, EmptyState(), params)
+
+    with pytest.raises(ValueError, match="Invalid argument for `variant`"):
+        zero_optax.polyak_sgd(variant="bad_variant")
+    for var_mode in ("sps", "sps+"):
+        psgd = zero_optax.polyak_sgd(variant=var_mode)
+        pst = psgd.init(params)
+        u_ps, _ = psgd.update(updates, pst, params, value=2.0)
+        assert get_tree_item(u_ps, "w").shape == (2,)
+        psgd.update(
+            {
+                "w": asarray([0.0, 0.0]),
+                "m": asarray([[0.0, 0.0], [0.0, 0.0]]),
+                "n": None,
+            },
+            pst,
+            params,
+            value=2.0,
+        )
+    with pytest.raises(ValueError, match="value"):
+        zero_optax.polyak_sgd().update(
+            updates, zero_optax.polyak_sgd().init(params), params
+        )
+
+    with pytest.raises(ValueError, match="memory_size"):
+        zero_optax.scale_by_lbfgs(memory_size=0)
+    with pytest.raises(ValueError, match="scale_by_lbfgs"):
+        zero_optax.scale_by_lbfgs().update(
+            updates, zero_optax.scale_by_lbfgs().init(params), None
+        )
+    with pytest.raises(TypeError, match="ScaleByLBFGSState"):
+        zero_optax.scale_by_lbfgs().update(updates, EmptyState(), params)
+
+    for sc_init, mem_sz in ((True, 1), (False, 2)):
+        lbfgs_opt = zero_optax.lbfgs(
+            learning_rate=0.1,
+            memory_size=mem_sz,
+            scale_init_precond=sc_init,
+            linesearch=None,
+        )
+        lb_st = lbfgs_opt.init(params)
+        assert isinstance(lb_st[0], zero_optax.ScaleByLBFGSState)
+        assert lb_st[0]._asdict()["count"] is not None
+        u_lb0, lb_st1 = lbfgs_opt.update(updates, lb_st, params)
+        p_next = zero_optax.apply_updates(params, u_lb0)
+        g_next: dict[str, PyTree] = {
+            "w": asarray([0.1, -0.2]),
+            "m": asarray([[0.05, -0.1], [0.15, -0.05]]),
+            "n": None,
+        }
+        u_lb1, lb_st2 = lbfgs_opt.update(g_next, lb_st1, p_next)
+        p_next2 = zero_optax.apply_updates(p_next, u_lb1)
+        g_next2: dict[str, PyTree] = {
+            "w": asarray([0.05, -0.1]),
+            "m": asarray([[0.02, -0.05], [0.07, -0.02]]),
+            "n": None,
+        }
+        lbfgs_opt.update(g_next2, lb_st2, p_next2)
+        lbfgs_opt.update(g_next2, lb_st2, p_next2)
+        lbfgs_opt.update(g_next, lb_st1, params)
+    lbfgs_zero = zero_optax.scale_by_lbfgs(scale_init_precond=True)
+    lbfgs_zero.update(
+        {"w": asarray([0.0, 0.0]), "m": asarray([[0.0, 0.0], [0.0, 0.0]]), "n": None},
+        lbfgs_zero.init(params),
+        params,
+    )

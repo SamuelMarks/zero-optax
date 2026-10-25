@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Generic, NamedTuple, Protocol, TypeVar
+from typing import Generic, NamedTuple, Protocol, TypeVar, Union
 
+from typing_extensions import TypeGuard
 from zero_orbax.checkpoint import Future as OrbaxFuture
 from zero_orbax.core import SerializedArray
 from zero_orbax.types import PyTree as OrbaxPyTree
@@ -25,6 +26,7 @@ from zero_optax._types import (
     OptStateProtocol,
     Params,
     PyTree,
+    Scalar,
     ScalarOrSchedule,
     Schedule,
     StateDictTree,
@@ -204,6 +206,15 @@ class TransformUpdateFn(Protocol[StateT_co]):
         ...
 
 
+ExtraArgValue = Union[
+    PyTree,
+    Callable[[Params], Union[Scalar, Tensor]],
+    Callable[[Params, float], Union[Scalar, Tensor]],
+    Callable[[Params, PyTree], Union[Scalar, Tensor]],
+    Callable[[Params, PyTree, PyTree], Union[Scalar, Tensor]],
+]
+
+
 class TransformUpdateExtraArgsFn(Protocol[StateT_co]):
     """Protocol for an update function accepting extra keyword arguments."""
 
@@ -212,7 +223,7 @@ class TransformUpdateExtraArgsFn(Protocol[StateT_co]):
         updates: Updates,
         state: OptState,
         params: Params | None = None,
-        **extra_args: float | int | str | bool | Tensor | None,
+        **extra_args: ExtraArgValue,
     ) -> tuple[Updates, StateT_co]:
         """Transform gradient `updates` with optional extra keyword arguments.
 
@@ -228,7 +239,6 @@ class TransformUpdateExtraArgsFn(Protocol[StateT_co]):
         ...
 
 
-@dataclass(frozen=True)
 class GradientTransformation(Generic[StateT_co]):
     """A pair of pure functions `(init, update)` implementing a gradient transformation.
 
@@ -241,9 +251,68 @@ class GradientTransformation(Generic[StateT_co]):
     update: TransformUpdateFn[StateT_co]
     _fields: tuple[str, ...] = ("init", "update")
 
+    def __init__(
+        self,
+        init: TransformInitFn[StateT_co],
+        update: TransformUpdateFn[StateT_co],
+        *args: PyTree,
+        **kwargs: PyTree,
+    ) -> None:
+        """Initialize a `GradientTransformation` from `init` and `update` callables.
 
-@dataclass(frozen=True)
-class GradientTransformationExtraArgs(Generic[StateT_co]):
+        Args:
+            init: Pure function initializing the optimizer state from parameters.
+            update: Pure function transforming updates and advancing the optimizer state.
+            *args: Optional extra positional arguments (unused, for NamedTuple signature parity).
+            **kwargs: Optional extra keyword arguments (unused, for NamedTuple signature parity).
+        """
+        del args, kwargs
+        self.init = init
+        self.update = update
+
+    def __iter__(
+        self,
+    ) -> Iterator[TransformInitFn[StateT_co] | TransformUpdateFn[StateT_co]]:
+        """Iterate over `(init, update)` for tuple unpacking compatibility.
+
+        Returns:
+            Iterator yielding `init` and `update`.
+        """
+        yield self.init
+        yield self.update
+
+
+def _is_init_fn(
+    fn: TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co] | PyTree,
+    has_second_callable: bool,
+) -> TypeGuard[TransformInitFn[StateT_co]]:
+    """Narrow `fn` to `TransformInitFn[StateT_co]` when a second update callable is supplied.
+
+    Args:
+        fn: Candidate init callable.
+        has_second_callable: Whether a second update callable was provided.
+
+    Returns:
+        True if `has_second_callable` and `fn` is callable.
+    """
+    return has_second_callable and callable(fn)
+
+
+def _is_update_extra_fn(
+    fn: TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co] | PyTree,
+) -> TypeGuard[TransformUpdateExtraArgsFn[StateT_co]]:
+    """Narrow `fn` to `TransformUpdateExtraArgsFn[StateT_co]` when `fn` is callable.
+
+    Args:
+        fn: Candidate update callable.
+
+    Returns:
+        True if `fn` is callable.
+    """
+    return callable(fn)
+
+
+class GradientTransformationExtraArgs(GradientTransformation[StateT_co]):
     """Gradient transformation whose `update` accepts extra keyword arguments.
 
     Attributes:
@@ -254,6 +323,34 @@ class GradientTransformationExtraArgs(Generic[StateT_co]):
     init: TransformInitFn[StateT_co]
     update: TransformUpdateExtraArgsFn[StateT_co]
     _fields: tuple[str, ...] = ("init", "update")
+
+    def __init__(
+        self,
+        update: TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co],
+        *args: TransformUpdateExtraArgsFn[StateT_co] | PyTree,
+        **kwargs: TransformUpdateExtraArgsFn[StateT_co] | PyTree,
+    ) -> None:
+        """Initialize a `GradientTransformationExtraArgs` from `(init, update)`.
+
+        Args:
+            update: Either `init` (when `update` is passed as the second positional argument in `*args`
+                or in `**kwargs`) or the `update` callable directly.
+            *args: Second positional argument `update` callable.
+            **kwargs: Optional keyword argument `update` callable.
+
+        Raises:
+            TypeError: If both `init` and `update` callables are not provided.
+        """
+        second_fn: TransformUpdateExtraArgsFn[StateT_co] | PyTree = (
+            args[0] if len(args) >= 1 else kwargs.get("init")
+        )
+        if _is_init_fn(update, callable(second_fn)) and _is_update_extra_fn(second_fn):
+            self.init = update
+            self.update = second_fn
+        else:
+            raise TypeError(
+                "GradientTransformationExtraArgs requires (init, update) callables."
+            )
 
 
 def identity() -> GradientTransformation[EmptyState]:
@@ -332,6 +429,51 @@ def set_to_zero() -> GradientTransformation[EmptyState]:
         """
         del state, params
         return tree_zeros_like(updates), EmptyState()
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def stateless(
+    f: Callable[[Updates, Params | None], Updates],
+) -> GradientTransformation[EmptyState]:
+    """Create a stateless `GradientTransformation` from an update-like function `f(updates, params)`.
+
+    Args:
+        f: Pure callable taking `(updates, params)` and returning transformed `updates`.
+
+    Returns:
+        A stateless `GradientTransformation` wrapping `f`.
+    """
+
+    def init_fn(params: Params) -> EmptyState:
+        """Initialize empty state for `stateless`.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `EmptyState`.
+        """
+        del params
+        return EmptyState()
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, EmptyState]:
+        """Apply `f(updates, params)` and return `EmptyState()`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current optimizer state.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(f(updates, params), EmptyState())`.
+        """
+        del state
+        return f(updates, params), EmptyState()
 
     return GradientTransformation(init_fn, update_fn)
 
@@ -533,4 +675,5 @@ __all__ = [
     "opt_state_from_state_dict",
     "opt_state_to_state_dict",
     "set_to_zero",
+    "stateless",
 ]

@@ -382,21 +382,57 @@ def convex_kl_divergence(
     return kl + reduce_sum(diff, axis=axis)
 
 
+def _axis_num_categories(
+    shape: tuple[int, ...],
+    axis: int | tuple[int, ...] | None,
+) -> float:
+    """Compute the total number of categories along `axis` for `smooth_labels`.
+
+    Args:
+        shape: Shape tuple of the labels tensor.
+        axis: Axis or tuple of axes over which categories are defined (or None for all axes).
+
+    Returns:
+        Floating-point product of the dimensions along `axis`.
+    """
+    if axis is None:
+        prod = 1
+        for d in shape:
+            prod *= d
+        return float(prod)
+    axes = (axis,) if isinstance(axis, int) else axis
+    prod = 1
+    for a in axes:
+        prod *= shape[a]
+    return float(prod)
+
+
 def smooth_labels(
     labels: ArrayLike,
     alpha: float,
+    *,
+    axis: int | tuple[int, ...] | None = -1,
+    where: ArrayLike | None = None,
 ) -> Tensor:
     """Apply label smoothing to one-hot target distributions.
 
     Args:
         labels: One-hot encoded target labels of shape `[..., num_classes]`.
         alpha: Smoothing factor in `[0, 1]`.
+        axis: Axis or axes along which to compute the number of categories.
+        where: Optional boolean mask specifying elements to include in smoothing.
 
     Returns:
         Smoothed label distribution `(1 - alpha) * labels + alpha / num_classes`.
     """
     t_arr = asarray(labels)
-    num_categories = float(t_arr.shape[-1])
+    if where is not None:
+        w_arr = asarray(where)
+        num_cats = reduce_sum(where_select(w_arr, 1.0, 0.0), axis=axis, keepdims=True)
+        safe_cats = where_select(num_cats > 0.0, num_cats, 1.0)
+        smoothed = (1.0 - alpha) * t_arr + (alpha / safe_cats)
+        return where_select(w_arr, smoothed, 0.0)
+    num_categories = _axis_num_categories(t_arr.shape, axis)
     return (1.0 - alpha) * t_arr + (alpha / num_categories)
 
 

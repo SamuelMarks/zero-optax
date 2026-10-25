@@ -1,4 +1,5 @@
 ml-switcheroo-ir @ git+https://github.com/SamuelMarks/ml-switcheroo-ir.git@master
 ml-switcheroo-compiler @ git+https://github.com/SamuelMarks/ml-switcheroo-compiler.git@master
+ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.5/ml_ecosystem_snapshots-0.0.5-py3-none-any.whl
 zero-jax @ git+https://github.com/SamuelMarks/zero-jax.git@master
 zero-chex @ git+https://github.com/SamuelMarks/zero-chex.git@master

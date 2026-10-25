@@ -61,7 +61,7 @@ repos:
         name: Check API Conformance
         entry: env PYTHONPATH=src:../ml-switcheroo-ir/src:../ml-switcheroo-compiler/src:../ml-ecosystem-snapshots/src:../zero-jax/src:../zero-chex/src:../zero-flax/src:../zero-orbax/src:../zero-grain/src python3 scripts/check_compliance.py
         language: system
-        files: ^(SEMANTIC_PLAN\.md|src/.*\.py)$
+        files: ^(SEMANTIC_PLAN\.md|TODO_PLAN\.md|scripts/check_compliance\.py|src/.*\.py)$
         pass_filenames: false
 
       - id: build

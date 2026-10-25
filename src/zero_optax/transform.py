@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from zero_optax._tree import (
     apply_mask_tree,
@@ -12,8 +13,13 @@ from zero_optax._tree import (
     evaluate_schedule,
     full_like,
     leaf_l2_norm,
+    maximum,
+    minimum,
+    reduce_mean,
+    reshape,
     resolve_mask,
     safe_norm,
+    sigmoid,
     sign,
     sqrt,
     tree_map,
@@ -21,6 +27,7 @@ from zero_optax._tree import (
     where,
 )
 from zero_optax._types import (
+    ArrayLike,
     DTypeLike,
     MaskOrFn,
     Params,
@@ -32,6 +39,7 @@ from zero_optax._types import (
     Updates,
 )
 from zero_optax.base import (
+    EmptyState,
     GradientTransformation,
     OptState,
     ScaleByScheduleState,
@@ -39,7 +47,14 @@ from zero_optax.base import (
     TraceState,
     _as_count_tensor,
     _OptStateDataclassBase,
+    identity,
 )
+from zero_optax.tree_utils._random import (
+    _extract_seed_int,
+    _split_seed_to_keys,
+    tree_random_like,
+)
+from zero_optax.tree_utils._tree_math import _flatten_tensor_floats
 
 
 class ScaleByRssState(NamedTuple):
@@ -451,18 +466,21 @@ def scale_by_schedule(
 
 
 def scale_by_learning_rate(
-    learning_rate: ScalarOrSchedule,
+    learning_rate: ScalarOrSchedule | None = None,
+    *,
     flip_sign: bool = True,
-) -> GradientTransformation[ScaleByScheduleState | ScaleState]:
+) -> GradientTransformation[ScaleByScheduleState | ScaleState | EmptyState]:
     """Scale updates by `learning_rate` (negated for gradient descent when `flip_sign=True`).
 
     Args:
-        learning_rate: Fixed scalar learning rate or callable `Schedule`.
+        learning_rate: Fixed scalar learning rate, callable `Schedule`, or None for no scaling.
         flip_sign: If True, multiply by `-learning_rate`; otherwise `+learning_rate`.
 
     Returns:
         A `GradientTransformation` scaling updates by the learning rate.
     """
+    if learning_rate is None:
+        return identity()
     sign_mult = -1.0 if flip_sign else 1.0
     if callable(learning_rate):
 
@@ -943,6 +961,9 @@ def scale_by_lion(
     b1: float = 0.9,
     b2: float = 0.99,
     mu_dtype: DTypeLike = None,
+    *,
+    mode: Literal["hard", "smooth", "refined"] = "hard",
+    smooth_beta: float = 1.0,
 ) -> GradientTransformation[ScaleByLionState]:
     """Rescale updates according to the Lion (EvoLved Sign Momentum) algorithm.
 
@@ -950,6 +971,9 @@ def scale_by_lion(
         b1: Rate for combining current gradient and momentum before taking `sign`.
         b2: Exponential decay rate for updating the momentum trace.
         mu_dtype: Optional data type for the momentum accumulator.
+        mode: Sign variant to use: `'hard'` (`sign(c)`), `'smooth'` (`tanh(smooth_beta * c)`),
+            or `'refined'` (`clip(c * smooth_beta, -1, 1)`).
+        smooth_beta: Smoothing factor used when `mode == 'smooth'` or `'refined'`.
 
     Returns:
         A `GradientTransformation` implementing Lion sign updates.
@@ -974,7 +998,7 @@ def scale_by_lion(
         state: OptState,
         params: Params | None = None,
     ) -> tuple[Updates, ScaleByLionState]:
-        """Compute `sign(b1 * m + (1 - b1) * g)` and update momentum `b2 * m + (1 - b2) * g`.
+        """Compute Lion update (`hard`, `smooth`, or `refined`) and update momentum `b2 * m + (1 - b2) * g`.
 
         Args:
             updates: Gradient updates PyTree.
@@ -995,18 +1019,23 @@ def scale_by_lion(
         count_inc = state.count + 1
 
         def _sign_step(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
-            """Compute `sign(b1 * m + (1 - b1) * g)`.
+            """Compute Lion step from `c = b1 * m + (1 - b1) * g`.
 
             Args:
                 m: Previous momentum leaf.
                 g: Current gradient leaf.
 
             Returns:
-                Sign Tensor leaf.
+                Transformed Lion update Tensor leaf.
             """
             if m is None or g is None:
                 return g
-            return sign(b1 * asarray(m) + (1.0 - b1) * asarray(g))
+            c = b1 * asarray(m) + (1.0 - b1) * asarray(g)
+            if mode == "smooth":
+                return 2.0 * sigmoid(2.0 * smooth_beta * c) - 1.0
+            if mode == "refined":
+                return minimum(maximum(smooth_beta * c, -1.0), 1.0)
+            return sign(c)
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update momentum `b2 * m + (1 - b2) * g`.
@@ -1708,9 +1737,792 @@ def add_decayed_weights(
     return GradientTransformation(init_fn, update_fn)
 
 
+class ZeroNansState(NamedTuple):
+    """State for `zero_nans` recording whether NaNs were found in each parameter leaf.
+
+    Attributes:
+        found_nan: PyTree of boolean scalar Tensors indicating whether NaNs occurred.
+    """
+
+    found_nan: PyTree
+
+
+@dataclass(frozen=True)
+class AddNoiseState(_OptStateDataclassBase):
+    """State for `add_noise` holding the step count and PRNG key.
+
+    Attributes:
+        count: Optimization step counter Tensor.
+        rng_key: PRNG key Tensor.
+    """
+
+    count: Tensor
+    rng_key: Tensor
+    _fields: tuple[str, ...] = ("count", "rng_key")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'` and `'rng_key'`.
+        """
+        return {"count": self.count, "rng_key": self.rng_key}
+
+
+@dataclass(frozen=True)
+class EmaState(_OptStateDataclassBase):
+    """State for `ema` holding the step count and exponential moving average PyTree.
+
+    Attributes:
+        count: Optimization step counter Tensor.
+        ema: Exponential moving average of updates PyTree.
+    """
+
+    count: Tensor
+    ema: Updates
+    _fields: tuple[str, ...] = ("count", "ema")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'` and `'ema'`.
+        """
+        return {"count": self.count, "ema": self.ema}
+
+
+@dataclass(frozen=True)
+class ScaleByAmsgradState(_OptStateDataclassBase):
+    """State for `scale_by_amsgrad` holding `count`, `mu`, `nu`, and `nu_max`.
+
+    Attributes:
+        count: Optimization step counter Tensor.
+        mu: First moment accumulator PyTree.
+        nu: Second moment accumulator PyTree.
+        nu_max: Running maximum of second moment accumulator PyTree.
+    """
+
+    count: Tensor
+    mu: Updates
+    nu: Updates
+    nu_max: Updates
+    _fields: tuple[str, ...] = ("count", "mu", "nu", "nu_max")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'count'`, `'mu'`, `'nu'`, and `'nu_max'`.
+        """
+        return {
+            "count": self.count,
+            "mu": self.mu,
+            "nu": self.nu,
+            "nu_max": self.nu_max,
+        }
+
+
+class KeepParamsNonnegativeState(NamedTuple):
+    """Empty state for `keep_params_nonnegative`."""
+
+
+def zero_nans() -> GradientTransformation[ZeroNansState]:
+    """Replace `NaN` values in gradient updates with `0.0` and record boolean flags in state.
+
+    Returns:
+        A `GradientTransformation` zeroing out `NaN` values.
+    """
+
+    def init_fn(params: Params) -> ZeroNansState:
+        """Initialize `ZeroNansState` with `False` boolean flags for each leaf.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `ZeroNansState`.
+        """
+
+        def _false_leaf(p: TensorLeaf) -> TensorLeaf:
+            """Return scalar `False` tensor for leaf `p`.
+
+            Args:
+                p: Parameter leaf.
+
+            Returns:
+                Scalar boolean Tensor `False`.
+            """
+            return None if p is None else asarray(False)
+
+        return ZeroNansState(found_nan=tree_map(_false_leaf, params))
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, ZeroNansState]:
+        """Replace `NaN` entries in `updates` with `0.0` and record `found_nan`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `ZeroNansState`.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(clean_updates, ZeroNansState(found_nan))`.
+        """
+        del state, params
+
+        def _check_nan(u: TensorLeaf) -> TensorLeaf:
+            """Return scalar boolean Tensor indicating if `u` contains any `NaN`.
+
+            Args:
+                u: Gradient update leaf.
+
+            Returns:
+                Scalar boolean Tensor.
+            """
+            if u is None:
+                return None
+            vals = _flatten_tensor_floats(asarray(u))
+            return asarray(any(math.isnan(v) for v in vals))
+
+        def _clean_nan(u: TensorLeaf) -> TensorLeaf:
+            """Replace any `NaN` elements in `u` with `0.0`.
+
+            Args:
+                u: Gradient update leaf.
+
+            Returns:
+                Cleaned Tensor leaf.
+            """
+            if u is None:
+                return None
+            u_t = asarray(u)
+            vals = _flatten_tensor_floats(u_t)
+            if not any(math.isnan(v) for v in vals):
+                return u_t
+            cleaned = [0.0 if math.isnan(v) else v for v in vals]
+            if u_t.shape == ():
+                return asarray(cleaned[0], dtype=u_t.dtype)
+            return reshape(asarray(cleaned, dtype=u_t.dtype), u_t.shape)
+
+        return (
+            tree_map(_clean_nan, updates),
+            ZeroNansState(found_nan=tree_map(_check_nan, updates)),
+        )
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def centralize() -> GradientTransformation[EmptyState]:
+    """Centralize gradients by subtracting the mean across all axes except axis 0 for rank >= 2.
+
+    Returns:
+        A `GradientTransformation` centralizing multi-dimensional gradient leaves.
+    """
+
+    def init_fn(params: Params) -> EmptyState:
+        """Initialize empty state for `centralize`.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `EmptyState`.
+        """
+        del params
+        return EmptyState()
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, EmptyState]:
+        """Subtract mean across axes `1..ndim-1` for leaves with `ndim >= 2`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current optimizer state.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(centralized_updates, EmptyState())`.
+        """
+        del state, params
+
+        def _centralize_leaf(g: TensorLeaf) -> TensorLeaf:
+            """Centralize single leaf `g` if `g.ndim >= 2`.
+
+            Args:
+                g: Gradient update leaf.
+
+            Returns:
+                Centralized Tensor leaf.
+            """
+            if g is None:
+                return None
+            g_t = asarray(g)
+            if g_t.ndim <= 1:
+                return g_t
+            axes = tuple(range(1, g_t.ndim))
+            return g_t - reduce_mean(g_t, axis=axes, keepdims=True)
+
+        return tree_map(_centralize_leaf, updates), EmptyState()
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def keep_params_nonnegative() -> GradientTransformation[KeepParamsNonnegativeState]:
+    """Clamp updates so that `params + updates >= 0` (`updates' = max(updates, -params)`).
+
+    Returns:
+        A `GradientTransformation` keeping parameters non-negative after `apply_updates`.
+    """
+
+    def init_fn(params: Params) -> KeepParamsNonnegativeState:
+        """Initialize empty `KeepParamsNonnegativeState`.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `KeepParamsNonnegativeState`.
+        """
+        del params
+        return KeepParamsNonnegativeState()
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, KeepParamsNonnegativeState]:
+        """Clamp each update leaf below at `-params`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `KeepParamsNonnegativeState`.
+            params: Current model parameters PyTree (required).
+
+        Returns:
+            Tuple of `(clamped_updates, KeepParamsNonnegativeState())`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
+        del state
+        if params is None:
+            raise ValueError(
+                "`params` must be provided to `keep_params_nonnegative` update."
+            )
+
+        def _clamp_leaf(u: TensorLeaf, p: TensorLeaf) -> TensorLeaf:
+            """Clamp `u` so `p + u >= 0`.
+
+            Args:
+                u: Update leaf.
+                p: Parameter leaf.
+
+            Returns:
+                Clamped update leaf.
+            """
+            if u is None or p is None:
+                return u
+            u_t = asarray(u)
+            p_t = asarray(p)
+            return where((p_t + u_t) < 0.0, -p_t, u_t)
+
+        return tree_map(_clamp_leaf, updates, params), KeepParamsNonnegativeState()
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def add_noise(
+    eta: float,
+    gamma: float,
+    key: ArrayLike | int | None = None,
+    *,
+    seed: int | None = None,
+) -> GradientTransformation[AddNoiseState]:
+    """Add annealed Gaussian noise `N(0, eta / (1 + t) ** gamma)` to updates.
+
+    Args:
+        eta: Base variance of the Gaussian noise.
+        gamma: Decay exponent controlling noise annealing over steps `t`.
+        key: Optional PRNG key array or integer seed.
+        seed: Optional deprecated integer seed keyword argument (used if `key is None`).
+
+    Returns:
+        A `GradientTransformation` adding annealed Gaussian noise.
+
+    Raises:
+        ValueError: If both `key` and `seed` are None, or if both are provided.
+    """
+    if key is None and seed is None:
+        init_seed = 0
+    elif key is not None and seed is not None:
+        raise ValueError("Provide only one of `key` or `seed` to `add_noise`.")
+    elif key is not None:
+        init_seed = _extract_seed_int(key)
+    else:
+        init_seed = int(seed) if seed is not None else 0
+
+    def init_fn(params: Params) -> AddNoiseState:
+        """Initialize `AddNoiseState` with `count = 0` and initial PRNG key.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `AddNoiseState`.
+        """
+        del params
+        return AddNoiseState(
+            count=asarray(0),
+            rng_key=asarray([0, init_seed], dtype="int32"),
+        )
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, AddNoiseState]:
+        """Add annealed Gaussian noise to `updates` and advance `state`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `AddNoiseState`.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(noisy_updates, new_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `AddNoiseState`.
+        """
+        del params
+        if not isinstance(state, AddNoiseState):
+            raise TypeError(
+                f"Expected AddNoiseState in add_noise, got {type(state)!r}."
+            )
+        count_inc = state.count + 1
+        t_val = float(count_inc.item())
+        variance = eta / (t_val**gamma)
+        std = math.sqrt(max(variance, 0.0))
+        subkeys = _split_seed_to_keys(_extract_seed_int(state.rng_key), 2)
+        next_key, sample_key = subkeys[0], subkeys[1]
+        noise_tree = tree_random_like(sample_key, updates)
+
+        def _add_noise_leaf(u: TensorLeaf, n: TensorLeaf) -> TensorLeaf:
+            """Add `std * n` to leaf `u`.
+
+            Args:
+                u: Update leaf.
+                n: Standard normal noise leaf.
+
+            Returns:
+                Noisy update leaf.
+            """
+            if u is None or n is None:
+                return u
+            return asarray(u) + std * asarray(n)
+
+        return (
+            tree_map(_add_noise_leaf, updates, noise_tree),
+            AddNoiseState(count=count_inc, rng_key=next_key),
+        )
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def ema(
+    decay: float,
+    debias: bool = True,
+    accumulator_dtype: DTypeLike = None,
+) -> GradientTransformation[EmaState]:
+    """Compute an exponential moving average of past updates.
+
+    Args:
+        decay: Exponential decay rate in `[0, 1)`.
+        debias: Whether to apply zero-debiasing `1 / (1 - decay ** t)`.
+        accumulator_dtype: Optional data type for the EMA state accumulator.
+
+    Returns:
+        A `GradientTransformation` computing the EMA of updates.
+    """
+
+    def init_fn(params: Params) -> EmaState:
+        """Initialize `EmaState` with zero EMA accumulators.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `EmaState`.
+        """
+        return EmaState(
+            count=asarray(0),
+            ema=tree_zeros_like(params, dtype=accumulator_dtype),
+        )
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, EmaState]:
+        """Update EMA state and return (optionally debiased) EMA updates.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `EmaState`.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(ema_updates, new_ema_state)`.
+
+        Raises:
+            TypeError: If `state` is not an `EmaState`.
+        """
+        del params
+        if not isinstance(state, EmaState):
+            raise TypeError(f"Expected EmaState in ema, got {type(state)!r}.")
+        count_inc = state.count + 1
+        t_int = int(count_inc.item())
+
+        def _ema_step(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
+            """Update EMA leaf `decay * m + (1 - decay) * g`.
+
+            Args:
+                m: Previous EMA leaf.
+                g: Current update leaf.
+
+            Returns:
+                Updated EMA leaf.
+            """
+            if m is None or g is None:
+                return g
+            val = decay * asarray(m) + (1.0 - decay) * asarray(g)
+            return (
+                asarray(val, dtype=accumulator_dtype)
+                if accumulator_dtype is not None
+                else val
+            )
+
+        new_ema = tree_map(_ema_step, state.ema, updates)
+        if not debias:
+            return new_ema, EmaState(count=count_inc, ema=new_ema)
+        denom = 1.0 - (decay**t_int)
+        safe_denom = denom if abs(denom) > 1e-12 else 1.0
+
+        def _debias_leaf(m: TensorLeaf) -> TensorLeaf:
+            """Divide EMA leaf by `1 - decay ** t`.
+
+            Args:
+                m: EMA leaf.
+
+            Returns:
+                Debiased EMA leaf.
+            """
+            return None if m is None else asarray(m) / safe_denom
+
+        return (
+            tree_map(_debias_leaf, new_ema),
+            EmaState(count=count_inc, ema=new_ema),
+        )
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def scale_by_amsgrad(
+    b1: float = 0.9,
+    b2: float = 0.999,
+    eps: float = 1e-8,
+    eps_root: float = 0.0,
+    mu_dtype: DTypeLike = None,
+    bias_correction_mu: bool = True,
+    bias_correction_nu: bool = True,
+) -> GradientTransformation[ScaleByAmsgradState]:
+    """Rescale updates according to the AMSGrad algorithm.
+
+    Args:
+        b1: Exponential decay rate for the first moment estimate.
+        b2: Exponential decay rate for the second moment estimate.
+        eps: Small constant added to the denominator outside the square root.
+        eps_root: Small constant added inside the square root.
+        mu_dtype: Optional dtype for the first moment accumulator `mu`.
+        bias_correction_mu: Whether to apply bias correction to `mu`.
+        bias_correction_nu: Whether to apply bias correction to `nu` before `nu_max`.
+
+    Returns:
+        A `GradientTransformation` implementing AMSGrad scaling.
+    """
+
+    def init_fn(params: Params) -> ScaleByAmsgradState:
+        """Initialize `ScaleByAmsgradState` with zero moments.
+
+        Args:
+            params: Model parameters PyTree.
+
+        Returns:
+            Initialized `ScaleByAmsgradState`.
+        """
+        return ScaleByAmsgradState(
+            count=asarray(0),
+            mu=tree_zeros_like(params, dtype=mu_dtype),
+            nu=tree_zeros_like(params),
+            nu_max=tree_zeros_like(params),
+        )
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, ScaleByAmsgradState]:
+        """Update `mu`, `nu`, and `nu_max` and scale updates.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current `ScaleByAmsgradState`.
+            params: Optional model parameters PyTree.
+
+        Returns:
+            Tuple of `(scaled_updates, new_amsgrad_state)`.
+
+        Raises:
+            TypeError: If `state` is not a `ScaleByAmsgradState`.
+        """
+        del params
+        if not isinstance(state, ScaleByAmsgradState):
+            raise TypeError(
+                f"Expected ScaleByAmsgradState in scale_by_amsgrad, got {type(state)!r}."
+            )
+        count_inc = state.count + 1
+        t_int = int(count_inc.item())
+        bc1 = (1.0 - (b1**t_int)) if bias_correction_mu else 1.0
+        bc2 = (1.0 - (b2**t_int)) if bias_correction_nu else 1.0
+        safe_bc1 = bc1 if abs(bc1) > 1e-12 else 1.0
+        safe_bc2 = bc2 if abs(bc2) > 1e-12 else 1.0
+
+        def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
+            """Update first moment `b1 * m + (1 - b1) * g`.
+
+            Args:
+                m: Previous first moment leaf.
+                g: Current gradient leaf.
+
+            Returns:
+                Updated first moment leaf.
+            """
+            if m is None or g is None:
+                return m
+            val = b1 * asarray(m) + (1.0 - b1) * asarray(g)
+            return asarray(val, dtype=mu_dtype) if mu_dtype is not None else val
+
+        def _update_nu(v: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
+            """Update second moment `b2 * v + (1 - b2) * g^2`.
+
+            Args:
+                v: Previous second moment leaf.
+                g: Current gradient leaf.
+
+            Returns:
+                Updated second moment leaf.
+            """
+            if v is None or g is None:
+                return v
+            g_t = asarray(g)
+            return b2 * asarray(v) + (1.0 - b2) * (g_t * g_t)
+
+        def _update_nu_max(v_max: TensorLeaf, v_new: TensorLeaf) -> TensorLeaf:
+            """Update running maximum `max(v_max, v_new / bc2)`.
+
+            Args:
+                v_max: Previous running maximum leaf.
+                v_new: Updated second moment leaf.
+
+            Returns:
+                Updated `nu_max` leaf.
+            """
+            if v_max is None or v_new is None:
+                return v_max
+            v_hat = asarray(v_new) / safe_bc2
+            return maximum(asarray(v_max), v_hat)
+
+        def _compute_step(m: TensorLeaf, v_max: TensorLeaf) -> TensorLeaf:
+            """Compute `(m / bc1) / (sqrt(v_max + eps_root) + eps)`.
+
+            Args:
+                m: Updated first moment leaf.
+                v_max: Updated running max second moment leaf.
+
+            Returns:
+                Scaled update leaf.
+            """
+            if m is None or v_max is None:
+                return m
+            m_hat = asarray(m) / safe_bc1
+            return m_hat / (sqrt(asarray(v_max) + eps_root) + eps)
+
+        new_mu = tree_map(_update_mu, state.mu, updates)
+        new_nu = tree_map(_update_nu, state.nu, updates)
+        new_nu_max = tree_map(_update_nu_max, state.nu_max, new_nu)
+        out_updates = tree_map(_compute_step, new_mu, new_nu_max)
+        return (
+            out_updates,
+            ScaleByAmsgradState(
+                count=count_inc,
+                mu=new_mu,
+                nu=new_nu,
+                nu_max=new_nu_max,
+            ),
+        )
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def scale_by_param_block_norm(
+    min_scale: float = 0.001,
+) -> GradientTransformation[EmptyState]:
+    """Scale updates for each parameter block by `max(||param||_2, min_scale)`.
+
+    Args:
+        min_scale: Minimum scaling factor applied when parameter norm is small.
+
+    Returns:
+        A `GradientTransformation` scaling updates by parameter block L2 norm.
+    """
+
+    def init_fn(params: Params) -> EmptyState:
+        """Initialize empty state for `scale_by_param_block_norm`.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `EmptyState`.
+        """
+        del params
+        return EmptyState()
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, EmptyState]:
+        """Scale each update leaf by `max(leaf_l2_norm(p), min_scale)`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current optimizer state.
+            params: Current model parameters PyTree (required).
+
+        Returns:
+            Tuple of `(scaled_updates, EmptyState())`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
+        del state
+        if params is None:
+            raise ValueError(
+                "`params` must be provided to `scale_by_param_block_norm` update."
+            )
+
+        def _scale_block(u: TensorLeaf, p: TensorLeaf) -> TensorLeaf:
+            """Multiply `u` by `max(||p||_2, min_scale)`.
+
+            Args:
+                u: Update leaf.
+                p: Parameter leaf.
+
+            Returns:
+                Scaled update leaf.
+            """
+            if u is None or p is None:
+                return u
+            return asarray(u) * maximum(leaf_l2_norm(p), min_scale)
+
+        return tree_map(_scale_block, updates, params), EmptyState()
+
+    return GradientTransformation(init_fn, update_fn)
+
+
+def scale_by_param_block_rms(
+    min_scale: float = 0.001,
+) -> GradientTransformation[EmptyState]:
+    """Scale updates for each parameter block by `max(rms(param), min_scale)`.
+
+    Args:
+        min_scale: Minimum scaling factor applied when parameter RMS is small.
+
+    Returns:
+        A `GradientTransformation` scaling updates by parameter block RMS.
+    """
+
+    def init_fn(params: Params) -> EmptyState:
+        """Initialize empty state for `scale_by_param_block_rms`.
+
+        Args:
+            params: Model parameters PyTree (unused).
+
+        Returns:
+            Initialized `EmptyState`.
+        """
+        del params
+        return EmptyState()
+
+    def update_fn(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+    ) -> tuple[Updates, EmptyState]:
+        """Scale each update leaf by `max(rms(p), min_scale)`.
+
+        Args:
+            updates: Gradient updates PyTree.
+            state: Current optimizer state.
+            params: Current model parameters PyTree (required).
+
+        Returns:
+            Tuple of `(scaled_updates, EmptyState())`.
+
+        Raises:
+            ValueError: If `params` is None.
+        """
+        del state
+        if params is None:
+            raise ValueError(
+                "`params` must be provided to `scale_by_param_block_rms` update."
+            )
+
+        def _scale_rms(u: TensorLeaf, p: TensorLeaf) -> TensorLeaf:
+            """Multiply `u` by `max(rms(p), min_scale)`.
+
+            Args:
+                u: Update leaf.
+                p: Parameter leaf.
+
+            Returns:
+                Scaled update leaf.
+            """
+            if u is None or p is None:
+                return u
+            p_t = asarray(p)
+            rms = sqrt(reduce_mean(p_t * p_t))
+            return asarray(u) * maximum(rms, min_scale)
+
+        return tree_map(_scale_rms, updates, params), EmptyState()
+
+    return GradientTransformation(init_fn, update_fn)
+
+
 __all__ = [
     "AddDecayedWeightsState",
+    "AddNoiseState",
+    "EmaState",
+    "KeepParamsNonnegativeState",
     "ScaleByAdamState",
+    "ScaleByAmsgradState",
     "ScaleByBeliefState",
     "ScaleByLionState",
     "ScaleByNovogradState",
@@ -1720,13 +2532,21 @@ __all__ = [
     "ScaleByRmsWithCountState",
     "ScaleByRssState",
     "ScaleByTrustRatioState",
+    "ZeroNansState",
     "add_decayed_weights",
+    "add_noise",
+    "centralize",
+    "ema",
+    "keep_params_nonnegative",
     "scale",
     "scale_by_adam",
+    "scale_by_amsgrad",
     "scale_by_belief",
     "scale_by_learning_rate",
     "scale_by_lion",
     "scale_by_novograd",
+    "scale_by_param_block_norm",
+    "scale_by_param_block_rms",
     "scale_by_rms",
     "scale_by_rss",
     "scale_by_schedule",
@@ -1734,4 +2554,5 @@ __all__ = [
     "scale_by_trust_ratio",
     "scale_by_yogi",
     "trace",
+    "zero_nans",
 ]

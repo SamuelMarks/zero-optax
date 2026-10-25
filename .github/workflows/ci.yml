@@ -36,11 +36,12 @@ jobs:
           "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffelib" 
           "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffecli" 
           "git+https://github.com/SamuelMarks/griffe.git@rest"
-        pip install --no-deps "ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.4/ml_ecosystem_snapshots-0.0.4-py3-none-any.whl"
+        pip install --no-deps "ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.5/ml_ecosystem_snapshots-0.0.5-py3-none-any.whl"
         pip install -r requirements.txt
         pip install -r requirements-test.txt
         pip install --no-deps -e .
-        python -c "import pathlib, shutil, ml_ecosystem_snapshots; src = pathlib.Path(ml_ecosystem_snapshots.__file__).parent / 'snapshots' / 'optax_v0.2.8.json'; dst = pathlib.Path.home() / '.cache' / 'ml_ecosystem_snapshots' / 'snapshots' / 'optax_v0.2.8.json'; dst.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(src, dst)"
+        mkdir -p ~/.cache/ml_ecosystem_snapshots/snapshots
+        curl -fsSL "https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.5/optax_v0.2.8.json" -o ~/.cache/ml_ecosystem_snapshots/snapshots/optax_v0.2.8.json
 
     - name: Check 3rd-party imports
       run: python scripts/check_deps.py

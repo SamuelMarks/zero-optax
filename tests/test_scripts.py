@@ -164,6 +164,53 @@ def test_check_compliance_script(tmp_path: Path) -> None:
     )
 
     assert check_compliance.verify_snapshot_v028(tmp_path / "does_not_exist.json") == []
+    assert check_compliance.parse_todo_plan_unchecked(tmp_path / "no_todo.md") == set()
+    todo_sample = tmp_path / "sample_todo.md"
+    todo_sample.write_text(
+        NL.join(
+            [
+                "- [" + " " + "] Implement `zero_optax.tree_utils.tree_add`",
+                "- [" + " " + "] Implement `optax.projections.projection_box`",
+                "- [x] Implement `optax.adam`",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert check_compliance.parse_todo_plan_unchecked(todo_sample) == {
+        "optax.tree_utils.tree_add",
+        "optax.projections.projection_box",
+    }
+    loaded_sub = check_compliance._load_target_submodules(
+        module_names=("optax", "optax.nonexistent_sub")
+    )
+    assert "optax" in loaded_sub and "optax.nonexistent_sub" not in loaded_sub
+    resolved_fallback = check_compliance._resolve_default_snapshot_path(
+        cache_path=tmp_path / "missing_cache_snap.json"
+    )
+    assert resolved_fallback.name == "optax_v0.2.8.json"
+    skipped_snap = tmp_path / "skipped_snap.json"
+    skipped_snap.write_text(
+        json.dumps(
+            {
+                "categories": {
+                    "array": [
+                        {
+                            "api_path": "optax.tree_utils.tree_add",
+                            "params": [],
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        check_compliance.verify_snapshot_v028(
+            snapshot_path=skipped_snap, todo_plan_path=todo_sample
+        )
+        == []
+    )
 
     bad_snap = tmp_path / "bad_snap.json"
     bad_snap.write_text(json.dumps(["not_a_dict"]), encoding="utf-8")
@@ -183,12 +230,19 @@ def test_check_compliance_script(tmp_path: Path) -> None:
                         "not_a_dict",
                         {
                             "api_path": "optax.no_such_fn",
+                            "aliases": "not_a_list",
                             "name": "no_such_fn",
                             "params": [],
                         },
                         {
-                            "api_path": "optax.OptState",
-                            "name": "OptState",
+                            "api_path": "optax.missing_sub.fn",
+                            "aliases": ["optax.missing_sub.fn_alias"],
+                            "name": "fn",
+                            "params": [],
+                        },
+                        {
+                            "api_path": "optax.__all__",
+                            "name": "__all__",
                             "params": [],
                         },
                         {
@@ -219,7 +273,7 @@ def test_check_compliance_script(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     errs = check_compliance.verify_snapshot_v028(mismatch_snap)
-    assert len(errs) >= 4
+    assert len(errs) >= 5
     assert (
         check_compliance.check_compliance(
             plan_path=valid_plan, todo_path=valid_todo, snapshot_path=mismatch_snap
@@ -246,7 +300,12 @@ def test_update_badges_script(tmp_path: Path) -> None:
 
     missing_cov = tmp_path / "no_cov.json"
     assert update_badges.get_test_coverage(missing_cov, run_cmd=False) == 100.0
-    assert isinstance(update_badges.get_test_coverage(missing_cov, run_cmd=True), float)
+    assert (
+        update_badges.get_test_coverage(
+            missing_cov, run_cmd=True, coverage_cmd=["true"]
+        )
+        == 100.0
+    )
 
     valid_cov = tmp_path / "cov.json"
     valid_cov.write_text(

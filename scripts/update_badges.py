@@ -47,20 +47,30 @@ def format_cov(cov: float) -> str:
     return f"{cov:.1f}"
 
 
-def get_test_coverage(cov_json_path: Path | None = None, run_cmd: bool = True) -> float:
+def get_test_coverage(
+    cov_json_path: Path | None = None,
+    run_cmd: bool = True,
+    coverage_cmd: list[str] | None = None,
+) -> float:
     """Read test coverage percentage from `coverage.json`.
 
     Args:
         cov_json_path: Optional path to `coverage.json`.
         run_cmd: Whether to invoke `coverage json -o coverage.json` before reading.
+        coverage_cmd: Optional command override for generating the coverage JSON.
 
     Returns:
         Test coverage percentage in `[0.0, 100.0]`.
     """
     target_path = Path("coverage.json") if cov_json_path is None else cov_json_path
     if run_cmd:
+        cmd = (
+            coverage_cmd
+            if coverage_cmd is not None
+            else [sys.executable, "-m", "coverage", "json", "-o", str(target_path)]
+        )
         subprocess.run(
-            [sys.executable, "-m", "coverage", "json", "-o", str(target_path)],
+            cmd,
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

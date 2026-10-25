@@ -42,19 +42,19 @@
       {
         "default": 0.0,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "epsilon"
       },
       {
         "default": -1,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "axis"
       },
       {
         "default": null,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "where"
       }
     ],
@@ -74,19 +74,19 @@
       {
         "default": 0.0,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "epsilon"
       },
       {
         "default": -1,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "axis"
       },
       {
         "default": null,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "where"
       }
     ],
@@ -494,6 +494,18 @@
         "has_default": false,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "alpha"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "where"
       }
     ],
     "softmax_cross_entropy": [
@@ -827,6 +839,12 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "should_skip_update_fn"
+      },
+      {
+        "default": "float32",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "accumulator_dtype"
       }
     ],
     "MultiStepsState": [
@@ -1381,7 +1399,7 @@
         "name": "momentum"
       },
       {
-        "default": "<non-primitive>",
+        "default": "float32",
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "dtype_momentum"
@@ -1657,6 +1675,12 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "eps"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "axis"
       }
     ],
     "add_decayed_weights": [
@@ -1688,8 +1712,14 @@
       },
       {
         "default": null,
-        "has_default": false,
+        "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "key"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
         "name": "seed"
       }
     ],
@@ -1729,6 +1759,18 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "mu_dtype"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction_mu"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction_nu"
       }
     ],
     "apply_every": [
@@ -1916,19 +1958,19 @@
       {
         "default": 0.0,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "epsilon"
       },
       {
         "default": -1,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "axis"
       },
       {
         "default": null,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "where"
       }
     ],
@@ -1980,19 +2022,19 @@
       {
         "default": 0.0,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "epsilon"
       },
       {
         "default": -1,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "axis"
       },
       {
         "default": null,
         "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
+        "kind": "KEYWORD_ONLY",
         "name": "where"
       }
     ],
@@ -2678,9 +2720,15 @@
         "name": "gamma"
       },
       {
-        "default": 0,
+        "default": null,
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "key"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
         "name": "seed"
       }
     ],
@@ -2860,6 +2908,12 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "eps"
+      },
+      {
+        "default": "sps",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "variant"
       }
     ],
     "polynomial_schedule": [
@@ -3268,6 +3322,18 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "mu_dtype"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction_mu"
+      },
+      {
+        "default": true,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "bias_correction_nu"
       }
     ],
     "scale_by_backtracking_linesearch": [
@@ -3428,6 +3494,18 @@
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "mu_dtype"
+      },
+      {
+        "default": "hard",
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "mode"
+      },
+      {
+        "default": 1.0,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "smooth_beta"
       }
     ],
     "scale_by_novograd": [
@@ -3486,12 +3564,6 @@
     ],
     "scale_by_polyak": [
       {
-        "default": 0.0,
-        "has_default": true,
-        "kind": "POSITIONAL_OR_KEYWORD",
-        "name": "f_min"
-      },
-      {
         "default": 1.0,
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
@@ -3501,7 +3573,19 @@
         "default": 0.0,
         "has_default": true,
         "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "f_min"
+      },
+      {
+        "default": 0.0,
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
         "name": "eps"
+      },
+      {
+        "default": "sps",
+        "has_default": true,
+        "kind": "POSITIONAL_OR_KEYWORD",
+        "name": "variant"
       }
     ],
     "scale_by_radam": [
@@ -3938,6 +4022,18 @@
         "has_default": false,
         "kind": "POSITIONAL_OR_KEYWORD",
         "name": "alpha"
+      },
+      {
+        "default": -1,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "axis"
+      },
+      {
+        "default": null,
+        "has_default": true,
+        "kind": "KEYWORD_ONLY",
+        "name": "where"
       }
     ],
     "softmax_cross_entropy": [
