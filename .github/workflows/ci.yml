@@ -23,21 +23,24 @@ jobs:
     - uses: actions/checkout@v7
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ruff pytest pytest-cov mypy interrogate build colorama pydantic
+        pip install ruff pytest pytest-cov mypy interrogate build colorama pydantic zstandard black libcst h5py pyyaml
         pip install "cdd @ git+https://github.com/offscale/cdd-python.git@master"
-        pip install --ignore-requires-python --no-deps 
-          "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffelib" 
-          "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffecli" 
+        pip install --ignore-requires-python --no-deps \
+          "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffelib" \
+          "git+https://github.com/SamuelMarks/griffe.git@rest#subdirectory=packages/griffecli" \
           "git+https://github.com/SamuelMarks/griffe.git@rest"
-        pip install --no-deps "ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.5/ml_ecosystem_snapshots-0.0.5-py3-none-any.whl"
-        pip install -r requirements.txt
+        pip install --no-deps \
+          "ml-switcheroo-ir @ https://github.com/SamuelMarks/ml-switcheroo-ir/releases/download/v0.0.4/ml_switcheroo_ir-0.0.4-py3-none-any.whl" \
+          "ml-switcheroo-compiler @ https://github.com/SamuelMarks/ml-switcheroo-compiler/releases/download/v0.0.1/ml_switcheroo_compiler-0.0.1-py3-none-any.whl" \
+          "ml-ecosystem-snapshots @ https://github.com/SamuelMarks/ml-ecosystem-snapshots/releases/download/v0.0.5/ml_ecosystem_snapshots-0.0.5-py3-none-any.whl"
+        pip install --no-deps -r requirements.txt
         pip install -r requirements-test.txt
         pip install --no-deps -e .
         mkdir -p ~/.cache/ml_ecosystem_snapshots/snapshots
