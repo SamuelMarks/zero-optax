@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import math
-
 from zero_optax._tree import (
+    abs_tensor,
     asarray,
+    maximum,
+    power,
     sqrt,
     tree_map,
     tree_zeros_like,
+    where,
 )
 from zero_optax._types import (
     Params,
@@ -88,15 +90,15 @@ def scale_by_radam(
                 f"Expected ScaleByAdamState in scale_by_radam, got {type(state)!r}."
             )
         count_inc = state.count + 1
-        t = int(count_inc.item())
-        b1_t = b1**t
-        b2_t = b2**t
+        t_f = asarray(count_inc, dtype="float32")
+        b1_t = power(asarray(b1, dtype="float32"), t_f)
+        b2_t = power(asarray(b2, dtype="float32"), t_f)
         bc1 = 1.0 - b1_t
         bc2 = 1.0 - b2_t
-        safe_bc1 = bc1 if abs(bc1) > 1e-12 else 1.0
-        safe_bc2 = bc2 if abs(bc2) > 1e-12 else 1.0
+        safe_bc1 = where(abs_tensor(bc1) > 1e-12, bc1, 1.0)
+        safe_bc2 = where(abs_tensor(bc2) > 1e-12, bc2, 1.0)
 
-        ro = ro_inf - 2.0 * float(t) * b2_t / safe_bc2
+        ro = ro_inf - 2.0 * t_f * b2_t / safe_bc2
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update first moment `b1 * m + (1 - b1) * g`.
@@ -144,36 +146,36 @@ def scale_by_radam(
                 return m
             m_t = asarray(m)
             if nesterov:
-                bc_next = 1.0 - (b1 ** (t + 1))
-                safe_next = bc_next if abs(bc_next) > 1e-12 else 1.0
+                bc_next = 1.0 - power(asarray(b1, dtype="float32"), t_f + 1.0)
+                safe_next = where(abs_tensor(bc_next) > 1e-12, bc_next, 1.0)
                 return (b1 * m_t / safe_next) + ((1.0 - b1) * asarray(g) / safe_bc1)
             return m_t / safe_bc1
 
         mu_hat = tree_map(_compute_mu_hat, new_mu, updates)
 
-        if ro >= threshold:
-            r_num = (ro - 4.0) * (ro - 2.0) * ro_inf
-            r_den = (ro_inf - 4.0) * (ro_inf - 2.0) * ro
-            rect = math.sqrt(max(r_num / r_den, 0.0))
+        r_num = (ro - 4.0) * (ro - 2.0) * ro_inf
+        r_den = (ro_inf - 4.0) * (ro_inf - 2.0) * where(abs_tensor(ro) > 1e-12, ro, 1.0)
+        rect = sqrt(maximum(r_num / r_den, 0.0))
+        is_rect = ro >= threshold
 
-            def _rect_step(mh: TensorLeaf, v: TensorLeaf) -> TensorLeaf:
-                """Compute rectified adaptive update `rect * mh / (sqrt(v / bc2 + eps_root) + eps)`.
+        def _radam_step(mh: TensorLeaf, v: TensorLeaf) -> TensorLeaf:
+            """Compute RAdam step selecting rectified adaptive update when `ro >= threshold`.
 
-                Args:
-                    mh: Bias-corrected first moment leaf.
-                    v: Updated second moment leaf.
+            Args:
+                mh: Bias-corrected first moment leaf.
+                v: Updated second moment leaf.
 
-                Returns:
-                    Rectified update leaf.
-                """
-                if mh is None or v is None:
-                    return mh
-                nu_hat = asarray(v) / safe_bc2
-                return (rect * asarray(mh)) / (sqrt(nu_hat + eps_root) + eps)
+            Returns:
+                RAdam update leaf.
+            """
+            if mh is None or v is None:
+                return mh
+            mh_t = asarray(mh)
+            nu_hat = asarray(v) / safe_bc2
+            rect_upd = (rect * mh_t) / (sqrt(nu_hat + eps_root) + eps)
+            return where(is_rect, rect_upd, mh_t)
 
-            out_updates = tree_map(_rect_step, mu_hat, new_nu)
-        else:
-            out_updates = mu_hat
+        out_updates = tree_map(_radam_step, mu_hat, new_nu)
 
         return (
             out_updates,

@@ -22,6 +22,7 @@ from zero_optax._types import (
     DTypeLike,
     DTypeLikeProtocol,
     MappableDataclassProtocol,
+    MaskedNode,
     MaskOrFn,
     MaskTree,
     NamedTupleProtocol,
@@ -96,6 +97,9 @@ def _to_raw_array_input(
 
     Returns:
         Unwrapped `Tensor`, scalar, or nested list of scalars.
+
+    Raises:
+        TypeError: If `val` is not a supported `ArrayLike` value.
     """
     if isinstance(val, (Tensor, int, float, bool)):
         return val
@@ -111,7 +115,7 @@ def _to_raw_array_input(
         ),
     ):
         return asarray(val)
-    return 0.0
+    raise TypeError(f"Unsupported ArrayLike input type: {type(val)!r}.")
 
 
 def asarray(val: ArrayLike, dtype: DTypeLike = None) -> Tensor:
@@ -487,6 +491,24 @@ def reduce_max(
     return as_tensor_obj(ops.max(asarray(x), axis=axis, keepdims=keepdims))
 
 
+def reduce_min(
+    x: ArrayLike,
+    axis: int | tuple[int, ...] | None = None,
+    keepdims: bool = False,
+) -> Tensor:
+    """Compute minimum of tensor elements over a given axis or axes.
+
+    Args:
+        x: Input tensor or array-like.
+        axis: Axis or tuple of axes along which the minimum is computed.
+        keepdims: If True, reduced axes are left with size one.
+
+    Returns:
+        Reduced minimum Tensor.
+    """
+    return as_tensor_obj(ops.min(asarray(x), axis=axis, keepdims=keepdims))
+
+
 def expand_dims(x: ArrayLike, axis: int) -> Tensor:
     """Expand the shape of a tensor by inserting a new axis of length 1.
 
@@ -652,6 +674,7 @@ def _coerce_pytree_child(child: CustomMappingChild | MaskTree) -> PyTree:
             int,
             bool,
             type(None),
+            MaskedNode,
             ArrayLikeProtocol,
             ToListArrayProtocol,
             ShapeDtypeProtocol,
@@ -659,8 +682,10 @@ def _coerce_pytree_child(child: CustomMappingChild | MaskTree) -> PyTree:
             CustomMappingPyTreeProtocol,
             MappableDataclassProtocol,
         ),
-    ):
+    ) and not isinstance(child, dict):
         return child
+    if isinstance(child, Mapping):
+        return {str(k): _coerce_pytree_child(v) for k, v in child.items()}
     if isinstance(child, tuple):
         return tuple(_coerce_pytree_child(item) for item in child)
     if isinstance(child, list):
@@ -688,6 +713,10 @@ def _apply_leaf_fn(
     """
     u_first = _unwrap_leaf(first)
     u_rest = [_unwrap_leaf(r) for r in rest_leaves]
+    if isinstance(u_first, MaskedNode) or any(
+        isinstance(r, MaskedNode) for r in u_rest
+    ):
+        return MaskedNode()
     n_extra = len(u_rest)
     if _is_leaf_fn1(fn, n_extra):
         res = fn(u_first)
@@ -790,7 +819,7 @@ def _extract_leaf(node: PyTree) -> TensorLeaf:
     Raises:
         ValueError: If `node` is a Mapping, custom mapping, dataclass, tuple, or list container.
     """
-    if isinstance(
+    if not isinstance(node, MaskedNode) and isinstance(
         node,
         (
             MappableDataclassProtocol,
@@ -887,6 +916,9 @@ def _tree_map_impl(
                 fn, _coerce_pytree_child(tree[k]), other_vals
             )
         return _rebuild_mapping(tree, result_dict)
+    if isinstance(tree, MaskedNode):
+        leaf_rest_m: list[TensorLeaf] = [_extract_leaf(r) for r in rest]
+        return _apply_leaf_fn(fn, tree, leaf_rest_m)
     if isinstance(tree, (tuple, list)):
         seq_items: list[PyTree] = []
         rest_seqs = _extract_rest_seqs(len(tree), rest)
@@ -907,6 +939,8 @@ def tree_leaves(tree: PyTree) -> list[TensorLeaf]:
     Returns:
         Flat list of TensorLeaf values.
     """
+    if isinstance(tree, MaskedNode):
+        return []
     if isinstance(tree, MappableDataclassProtocol):
         dc_leaves: list[TensorLeaf] = []
         for v in tree.__chex_field_values__():
@@ -945,8 +979,8 @@ def tree_zeros_like(tree: Params, dtype: DTypeLike = None) -> Updates:
         Returns:
             Zero Tensor matching `x`.
         """
-        if x is None:
-            return None
+        if x is None or isinstance(x, MaskedNode):
+            return x
         return zeros_like(x, dtype=dtype)
 
     return tree_map(_zero_leaf, tree)
@@ -966,7 +1000,7 @@ def tree_l2_norm(tree: PyTree, squared: bool = False) -> Tensor:
     total_sq: Tensor = asarray(0.0)
     for leaf in leaves:
         unwrapped = _unwrap_leaf(leaf)
-        if unwrapped is not None:
+        if unwrapped is not None and not isinstance(unwrapped, MaskedNode):
             t = asarray(unwrapped)
             total_sq = total_sq + reduce_sum(t * t)
     if squared:
@@ -984,7 +1018,7 @@ def leaf_l2_norm(x: TensorLeaf) -> Tensor:
         Scalar Tensor holding the L2 norm of `x`.
     """
     unwrapped = _unwrap_leaf(x)
-    if unwrapped is None:
+    if unwrapped is None or isinstance(unwrapped, MaskedNode):
         return asarray(0.0)
     t = asarray(unwrapped)
     return sqrt(reduce_sum(t * t))
@@ -1101,7 +1135,9 @@ def apply_mask_tree(
             apply_mask_tree(m_val, u_val, b_val)
             for m_val, u_val, b_val in zip(masked_tree, unmasked_tree, mask_tree)
         ]
-    return masked_tree
+    raise ValueError(
+        "Mask tree container structure does not match masked_tree and unmasked_tree."
+    )
 
 
 def safe_norm(
@@ -1255,6 +1291,7 @@ __all__ = [
     "power",
     "reduce_max",
     "reduce_mean",
+    "reduce_min",
     "reduce_sum",
     "reshape",
     "resolve_mask",

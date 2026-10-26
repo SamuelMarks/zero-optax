@@ -414,7 +414,7 @@ def _map_with_is_leaf(
     return _call_param_fn(fn, primary, rest)
 
 
-_SENTINEL_SHAPE: tuple[int, ...] = (3, 1, 7)
+_SENTINEL_SHAPE: tuple[int, ...] = (2, 1, 3, 1, 5, 1, 7)
 
 
 def _is_sentinel_subtree(node: PyTree) -> bool:
@@ -554,12 +554,12 @@ def tree_map_params(
 
 
 def full_like_sentinel() -> Tensor:
-    """Create a 1D sentinel zero tensor of length 21 for `_SENTINEL_SHAPE = (3, 1, 7)`.
+    """Create a 1D sentinel zero tensor of length 210 for `_SENTINEL_SHAPE = (2, 1, 3, 1, 5, 1, 7)`.
 
     Returns:
-        1D zero Tensor of length 21.
+        1D zero Tensor of length 210.
     """
-    return asarray([0.0] * 21)
+    return asarray([0.0] * 210)
 
 
 __all__ = [

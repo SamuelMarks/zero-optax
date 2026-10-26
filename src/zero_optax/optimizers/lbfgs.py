@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from zero_optax._linesearch import (
@@ -23,6 +24,7 @@ from zero_optax.base import (
     GradientTransformation,
     GradientTransformationExtraArgs,
     OptState,
+    _as_count_tensor,
     _OptStateDataclassBase,
     identity,
 )
@@ -79,6 +81,39 @@ class ScaleByLBFGSState(_OptStateDataclassBase):
             "diff_updates_memory": self.diff_updates_memory,
             "weights_memory": self.weights_memory,
         }
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByLBFGSState:
+        """Construct `ScaleByLBFGSState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, params, updates, diff_params_memory, diff_updates_memory, weights_memory)`.
+
+        Returns:
+            Reconstructed `ScaleByLBFGSState`.
+        """
+        items = list(iterable)
+        dp_raw = items[3]
+        du_raw = items[4]
+        wm_raw = items[5]
+        dp_mem = tuple(dp_raw) if isinstance(dp_raw, (tuple, list)) else ()
+        du_mem = tuple(du_raw) if isinstance(du_raw, (tuple, list)) else ()
+        wm_mem: list[float] = [
+            float(w_item.item())
+            if isinstance(w_item, Tensor)
+            else float(w_item)
+            if isinstance(w_item, (int, float))
+            else 0.0
+            for w_item in (wm_raw if isinstance(wm_raw, (tuple, list)) else ())
+        ]
+        return cls(
+            count=_as_count_tensor(items[0]),
+            params=items[1],
+            updates=items[2],
+            diff_params_memory=dp_mem,
+            diff_updates_memory=du_mem,
+            weights_memory=tuple(wm_mem),
+        )
 
 
 def scale_by_lbfgs(

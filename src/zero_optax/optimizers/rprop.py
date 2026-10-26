@@ -2,24 +2,35 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple
 
 from zero_optax._tree import (
+    _coerce_pytree_child,
+    _extract_leaf,
+    _rebuild_mapping,
+    _rebuild_sequence,
+    _unwrap_leaf,
     asarray,
     full_like,
     maximum,
     minimum,
+    reduce_max,
+    reshape,
     sign,
     sqrt,
     tree_map,
     tree_zeros_like,
     where,
+    zeros,
 )
 from zero_optax._types import (
+    CustomMappingPyTreeProtocol,
     Params,
     PyTree,
     ScalarOrSchedule,
+    Tensor,
     TensorLeaf,
     Updates,
 )
@@ -34,11 +45,11 @@ from zero_optax.transform import scale, scale_by_learning_rate
 
 @dataclass(frozen=True)
 class ScaleByRpropState(_OptStateDataclassBase):
-    """State for `scale_by_rprop` holding adaptive step sizes and previous gradients.
+    """State for `scale_by_rprop` holding adaptive step sizes and previous updates.
 
     Attributes:
         step_sizes: Per-parameter adaptive step sizes PyTree.
-        prev_updates: Previous step gradients PyTree.
+        prev_updates: Previous step updates PyTree.
     """
 
     step_sizes: Updates
@@ -55,6 +66,19 @@ class ScaleByRpropState(_OptStateDataclassBase):
             "step_sizes": self.step_sizes,
             "prev_updates": self.prev_updates,
         }
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByRpropState:
+        """Construct `ScaleByRpropState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(step_sizes, prev_updates)`.
+
+        Returns:
+            Reconstructed `ScaleByRpropState`.
+        """
+        items = list(iterable)
+        return cls(step_sizes=items[0], prev_updates=items[1])
 
 
 def scale_by_rprop(
@@ -108,7 +132,7 @@ def scale_by_rprop(
         state: OptState,
         params: Params | None = None,
     ) -> tuple[Updates, ScaleByRpropState]:
-        """Adapt per-parameter step sizes based on sign agreement and return `-step_size * sign(g)`.
+        """Adapt per-parameter step sizes based on sign agreement and return Rprop updates.
 
         Args:
             updates: Gradient updates PyTree.
@@ -130,64 +154,72 @@ def scale_by_rprop(
         def _adapt_step(
             prev_step: TensorLeaf,
             g: TensorLeaf,
-            prev_g: TensorLeaf,
+            prev_u: TensorLeaf,
         ) -> TensorLeaf:
-            """Update step size leaf based on `g * prev_g` sign.
+            """Update step size leaf based on `g * prev_u` sign.
 
             Args:
                 prev_step: Previous step size leaf.
                 g: Current gradient leaf.
-                prev_g: Previous gradient leaf.
+                prev_u: Previous update leaf.
 
             Returns:
                 Clipped updated step size leaf.
             """
-            if prev_step is None or g is None or prev_g is None:
+            if prev_step is None or g is None or prev_u is None:
                 return prev_step
-            prod = asarray(g) * asarray(prev_g)
+            prod = asarray(g) * asarray(prev_u)
             st_t = asarray(prev_step)
-            inc = minimum(st_t * eta_plus, max_step_size)
-            dec = maximum(st_t * eta_minus, min_step_size)
-            return where(prod > 0.0, inc, where(prod < 0.0, dec, st_t))
+            scaled = st_t * where(prod > 0.0, eta_plus, eta_minus)
+            clipped = minimum(maximum(scaled, min_step_size), max_step_size)
+            return where(prod == 0.0, st_t, clipped)
 
-        def _next_prev_g(
+        def _next_prev_u(
             g: TensorLeaf,
-            prev_g: TensorLeaf,
+            prev_u: TensorLeaf,
+            step_sz: TensorLeaf,
         ) -> TensorLeaf:
-            """Zero out stored gradient where sign flipped (`g * prev_g < 0`).
+            """Compute new `prev_updates` leaf (`0` where `g * prev_u < 0`, else `step_size * sign(g)`).
 
             Args:
                 g: Current gradient leaf.
-                prev_g: Previous gradient leaf.
+                prev_u: Previous update leaf.
+                step_sz: Updated step size leaf.
 
             Returns:
-                Stored gradient leaf for the next iteration.
+                New `prev_updates` leaf.
             """
-            if g is None or prev_g is None:
+            if g is None or prev_u is None or step_sz is None:
                 return g
             g_t = asarray(g)
-            prod = g_t * asarray(prev_g)
-            return where(prod < 0.0, 0.0, g_t)
+            prod = g_t * asarray(prev_u)
+            return where(prod < 0.0, 0.0, asarray(step_sz) * sign(g_t))
 
-        def _compute_upd(step_sz: TensorLeaf, next_g: TensorLeaf) -> TensorLeaf:
-            """Compute `step_size * sign(next_g)`.
+        def _compute_upd(
+            g: TensorLeaf,
+            prev_u: TensorLeaf,
+        ) -> TensorLeaf:
+            """Compute emitted update (`0` where `g * prev_u < 0`, else `prev_u`).
 
             Args:
-                step_sz: Updated step size leaf.
-                next_g: Masked current gradient leaf.
+                g: Current gradient leaf.
+                prev_u: Previous update leaf (`state.prev_updates`).
 
             Returns:
-                Scaled Rprop update leaf.
+                Emitted Rprop update leaf.
             """
-            if step_sz is None or next_g is None:
-                return next_g
-            return asarray(step_sz) * sign(asarray(next_g))
+            if g is None or prev_u is None:
+                return prev_u
+            prod = asarray(g) * asarray(prev_u)
+            return where(prod < 0.0, 0.0, asarray(prev_u))
 
         new_step_sizes = tree_map(
             _adapt_step, state.step_sizes, updates, state.prev_updates
         )
-        new_prev_updates = tree_map(_next_prev_g, updates, state.prev_updates)
-        out_updates = tree_map(_compute_upd, new_step_sizes, new_prev_updates)
+        new_prev_updates = tree_map(
+            _next_prev_u, updates, state.prev_updates, new_step_sizes
+        )
+        out_updates = tree_map(_compute_upd, updates, state.prev_updates)
         return (
             out_updates,
             ScaleByRpropState(
@@ -246,11 +278,151 @@ class ScaleBySm3State(NamedTuple):
 
     Attributes:
         mu: Momentum accumulator PyTree.
-        nu: Second-moment cover accumulator PyTree.
+        nu: Second-moment cover accumulator PyTree (each parameter leaf holds a list of 1D rank covers).
     """
 
     mu: Updates
     nu: Updates
+
+
+def _init_sm3_nu_tree(tree: Params) -> Updates:
+    """Initialize per-parameter-leaf list of 1D rank-cover accumulators `[zeros((d_i,))]`.
+
+    Args:
+        tree: Model parameters PyTree.
+
+    Returns:
+        PyTree matching `tree` where each tensor leaf is replaced by `list[Tensor]`.
+    """
+    if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
+        return _rebuild_mapping(
+            tree,
+            {k: _init_sm3_nu_tree(_coerce_pytree_child(tree[k])) for k in tree},
+        )
+    if isinstance(tree, (tuple, list)):
+        return _rebuild_sequence(tree, [_init_sm3_nu_tree(item) for item in tree])
+    unwrapped = _unwrap_leaf(_extract_leaf(tree))
+    if unwrapped is None:
+        return None
+    p_t = asarray(unwrapped)
+    if p_t.ndim == 0:
+        return [zeros((), dtype=p_t.dtype)]
+    return [zeros((dim_sz,), dtype=p_t.dtype) for dim_sz in p_t.shape]
+
+
+def _update_sm3_leaf(
+    g_leaf: TensorLeaf,
+    m_leaf: TensorLeaf,
+    nu_node: PyTree,
+    b1: float,
+    b2: float,
+    eps: float,
+) -> tuple[TensorLeaf, PyTree]:
+    """Update a single parameter leaf's SM3 rank covers and momentum step.
+
+    Args:
+        g_leaf: Gradient leaf value.
+        m_leaf: Previous momentum leaf value.
+        nu_node: Previous list of 1D rank-cover Tensors.
+        b1: Momentum decay rate in `[0, 1)`.
+        b2: Second-moment accumulation weight.
+        eps: Numerical stability epsilon.
+
+    Returns:
+        Tuple `(new_mu_leaf, new_nu_covers)`.
+    """
+    u_g = _unwrap_leaf(g_leaf)
+    u_m = _unwrap_leaf(m_leaf)
+    if u_g is None or u_m is None or not isinstance(nu_node, list):
+        return g_leaf, nu_node
+    g_t = asarray(u_g)
+    m_t = asarray(u_m)
+    shape = g_t.shape
+    ndim = g_t.ndim
+    covers: list[Tensor] = [
+        c if isinstance(c, Tensor) else zeros((), dtype=g_t.dtype) for c in nu_node
+    ]
+
+    if ndim == 0:
+        v_min = covers[0]
+    else:
+        bcast_first = [1] * ndim
+        bcast_first[0] = shape[0]
+        v_min = reshape(covers[0], bcast_first)
+        for ax in range(1, ndim):
+            bcast_ax = [1] * ndim
+            bcast_ax[ax] = shape[ax]
+            v_min = minimum(v_min, reshape(covers[ax], bcast_ax))
+
+    weight = 1.0 if b2 == 1.0 else (1.0 - b2)
+    v_hat = b2 * v_min + weight * (g_t * g_t)
+
+    if ndim <= 1:
+        new_covers: PyTree = [v_hat]
+    else:
+        new_covers = [
+            reduce_max(
+                v_hat, axis=tuple(i for i in range(ndim) if i != ax), keepdims=False
+            )
+            for ax in range(ndim)
+        ]
+
+    scaled = where(v_hat > 0.0, g_t / sqrt(v_hat + eps), 0.0)
+    new_m: TensorLeaf = (b1 * m_t + (1.0 - b1) * scaled) if b1 > 0.0 else scaled
+    return new_m, new_covers
+
+
+def _update_sm3_trees(
+    updates: Updates,
+    mu: Updates,
+    nu: Updates,
+    b1: float,
+    b2: float,
+    eps: float,
+) -> tuple[Updates, Updates]:
+    """Co-traverse `updates`, `mu`, and `nu` to compute SM3 updates and rank-cover state.
+
+    Args:
+        updates: Gradient updates PyTree.
+        mu: Previous momentum PyTree.
+        nu: Previous SM3 rank-cover PyTree.
+        b1: Momentum decay rate.
+        b2: Second-moment decay rate.
+        eps: Numerical stability constant.
+
+    Returns:
+        Tuple `(new_mu, new_nu)`.
+    """
+    if (
+        isinstance(updates, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(mu, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(nu, (Mapping, CustomMappingPyTreeProtocol))
+    ):
+        mu_map: dict[str, PyTree] = {}
+        nu_map: dict[str, PyTree] = {}
+        for k in updates:
+            mu_map[k], nu_map[k] = _update_sm3_trees(
+                _coerce_pytree_child(updates[k]),
+                _coerce_pytree_child(mu[k]),
+                _coerce_pytree_child(nu[k]),
+                b1,
+                b2,
+                eps,
+            )
+        return _rebuild_mapping(updates, mu_map), _rebuild_mapping(nu, nu_map)
+    if (
+        isinstance(updates, (tuple, list))
+        and isinstance(mu, (tuple, list))
+        and isinstance(nu, (tuple, list))
+    ):
+        mu_items: list[PyTree] = []
+        nu_items: list[PyTree] = []
+        for u_item, m_item, n_item in zip(updates, mu, nu):
+            m_out, n_out = _update_sm3_trees(u_item, m_item, n_item, b1, b2, eps)
+            mu_items.append(m_out)
+            nu_items.append(n_out)
+        return _rebuild_sequence(updates, mu_items), _rebuild_sequence(nu, nu_items)
+    return _update_sm3_leaf(_extract_leaf(updates), _extract_leaf(mu), nu, b1, b2, eps)
 
 
 def scale_by_sm3(
@@ -270,7 +442,7 @@ def scale_by_sm3(
     """
 
     def init_fn(params: Params) -> ScaleBySm3State:
-        """Initialize `ScaleBySm3State` with zero `mu` and `nu`.
+        """Initialize `ScaleBySm3State` with zero `mu` and rank-1 cover lists `nu`.
 
         Args:
             params: Model parameters PyTree.
@@ -280,7 +452,7 @@ def scale_by_sm3(
         """
         return ScaleBySm3State(
             mu=tree_zeros_like(params),
-            nu=tree_zeros_like(params),
+            nu=_init_sm3_nu_tree(params),
         )
 
     def update_fn(
@@ -288,7 +460,7 @@ def scale_by_sm3(
         state: OptState,
         params: Params | None = None,
     ) -> tuple[Updates, ScaleBySm3State]:
-        """Update SM3 accumulators and scale updates.
+        """Update SM3 rank-cover accumulators and scale updates.
 
         Args:
             updates: Gradient updates PyTree.
@@ -306,63 +478,22 @@ def scale_by_sm3(
             raise TypeError(
                 f"Expected ScaleBySm3State in scale_by_sm3, got {type(state)!r}."
             )
-
-        def _update_nu(v: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
-            """Update SM3 second-moment estimate `b2 * v + (1 - b2_eff) * g^2`.
-
-            Args:
-                v: Previous accumulator leaf.
-                g: Current gradient leaf.
-
-            Returns:
-                Updated accumulator leaf.
-            """
-            if v is None or g is None:
-                return v
-            g_t = asarray(g)
-            v_t = asarray(v)
-            weight = 1.0 if b2 == 1.0 else (1.0 - b2)
-            return b2 * v_t + weight * (g_t * g_t)
-
-        def _scale_and_mu(
-            m: TensorLeaf,
-            v_new: TensorLeaf,
-            g: TensorLeaf,
-        ) -> TensorLeaf:
-            """Compute SM3 step `b1 * m + (1 - b1) * (g / sqrt(v_new + eps))`.
-
-            Args:
-                m: Previous momentum leaf.
-                v_new: Updated second-moment leaf.
-                g: Current gradient leaf.
-
-            Returns:
-                Updated momentum / step leaf.
-            """
-            if m is None or v_new is None or g is None:
-                return g
-            v_t = asarray(v_new)
-            g_t = asarray(g)
-            scaled = where(v_t > 0.0, g_t / sqrt(v_t + eps), 0.0)
-            if b1 > 0.0:
-                return b1 * asarray(m) + (1.0 - b1) * scaled
-            return scaled
-
-        new_nu = tree_map(_update_nu, state.nu, updates)
-        new_mu = tree_map(_scale_and_mu, state.mu, new_nu, updates)
+        new_mu, new_nu = _update_sm3_trees(
+            updates, state.mu, state.nu, b1=b1, b2=b2, eps=eps
+        )
         return new_mu, ScaleBySm3State(mu=new_mu, nu=new_nu)
 
     return GradientTransformation(init_fn, update_fn)
 
 
 def sm3(
-    learning_rate: float,
+    learning_rate: ScalarOrSchedule,
     momentum: float = 0.9,
 ) -> GradientTransformation[tuple[OptState, ...]]:
     """The SM3 (Square-root of Minima of Sums of Maxima of Squared-gradients) optimizer.
 
     Args:
-        learning_rate: Global scaling factor (`step_size`).
+        learning_rate: Global scaling factor (`step_size`) or learning rate `Schedule`.
         momentum: Momentum decay rate (default `0.9`).
 
     Returns:
@@ -370,7 +501,7 @@ def sm3(
     """
     return chain(
         scale_by_sm3(b1=momentum),
-        scale(-float(learning_rate)),
+        scale_by_learning_rate(learning_rate),
     )
 
 

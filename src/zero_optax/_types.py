@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from typing import Protocol, Union, runtime_checkable
+from typing import NamedTuple, Protocol, Union, runtime_checkable
 
 from ml_switcheroo_compiler.core.dtype import DType
 from ml_switcheroo_compiler.core.tensor import Tensor
@@ -14,6 +14,10 @@ from zero_flax.nnx.state import StateEntry
 from zero_jax._types import ArrayLikeSpec as JaxArrayLikeSpec
 from zero_orbax.core import SerializedArray
 from zero_orbax.types import PyTree as OrbaxPyTree
+
+
+class MaskedNode(NamedTuple):
+    """Sentinel node replacing masked-out (`False`) leaves inside `masked` states."""
 
 
 @runtime_checkable
@@ -298,6 +302,7 @@ TensorLeaf = Union[
     int,
     bool,
     None,
+    MaskedNode,
     ArrayLikeProtocol,
     ToListArrayProtocol,
     ShapeDtypeProtocol,
@@ -352,6 +357,7 @@ __all__ = [
     "MappableDataclassProtocol",
     "MaskOrFn",
     "MaskTree",
+    "MaskedNode",
     "NamedTupleProtocol",
     "OptStateProtocol",
     "Params",

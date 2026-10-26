@@ -415,11 +415,9 @@ def test_lint_typing_and_docs_script(tmp_path: Path) -> None:
                 "",
                 "    Args:",
                 "        x: Documented.",
-                "",
-                "    Returns:",
-                "        Int.",
                 '    """',
                 "    return x",
+                '__all__ = ["z", "a"]',
                 "",
             ]
         ),
@@ -427,6 +425,9 @@ def test_lint_typing_and_docs_script(tmp_path: Path) -> None:
     )
     assert lint_typing_and_docs.main([str(bad_file)]) == 1
     assert lint_typing_and_docs.main([str(src_sub)]) == 1
+    no_all_file = src_sub / "no_all.py"
+    no_all_file.write_text(f'"""Doc."""{NL}', encoding="utf-8")
+    assert lint_typing_and_docs.lint_file(no_all_file, is_src=True) != []
     assert (
         lint_typing_and_docs.check_pyproject_mypy_config(tmp_path / "missing.toml")
         == []

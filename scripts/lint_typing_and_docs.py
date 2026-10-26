@@ -89,12 +89,71 @@ def _extract_documented_args(docstring: str) -> set[str]:
     return documented
 
 
+def _has_returns_section(docstring: str) -> bool:
+    """Check whether a docstring includes a non-empty `Returns:` or `Yields:` section.
+
+    Args:
+        docstring: Raw docstring text of a function or method.
+
+    Returns:
+        True if `Returns:` or `Yields:` is present with a description.
+    """
+    return bool(
+        re.search(r"^\s*(?:Returns|Yields):\s*\n\s+\S+", docstring, flags=re.MULTILINE)
+    )
+
+
+def _is_none_return(annotation: ast.expr) -> bool:
+    """Check whether a return annotation AST node represents `None`.
+
+    Args:
+        annotation: AST expression node for `node.returns`.
+
+    Returns:
+        True if the return annotation is `None`.
+    """
+    return (isinstance(annotation, ast.Constant) and annotation.value is None) or (
+        isinstance(annotation, ast.Name) and annotation.id == "None"
+    )
+
+
+def _check_src_dunder_all(filepath: Path, tree: ast.Module) -> list[str]:
+    """Verify that a `src/` module defines a sorted list of strings in `__all__`.
+
+    Args:
+        filepath: Path to the `src/` Python file.
+        tree: Parsed AST module.
+
+    Returns:
+        List of error messages if `__all__` is missing or unsorted.
+    """
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            t0 = node.targets[0]
+            if (
+                isinstance(t0, ast.Name)
+                and t0.id == "__all__"
+                and isinstance(node.value, ast.List)
+            ):
+                items: list[str] = [
+                    elt.value
+                    for elt in node.value.elts
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                ]
+                if items != sorted(items):
+                    return [
+                        f"{filepath}:{node.lineno}: '__all__' must be sorted alphabetically."
+                    ]
+                return []
+    return [f"{filepath}:1: Source module in src/ must define '__all__'."]
+
+
 def lint_file(filepath: Path, is_src: bool = False) -> list[str]:
     """Lint a single Python file for typing, reflection, and docstring violations.
 
     Args:
         filepath: Path to the Python file to inspect.
-        is_src: Whether the file resides under `src/` (enables reflection checks).
+        is_src: Whether the file resides under `src/` (enables `__all__` and `Returns:` checks).
 
     Returns:
         List of formatted error messages for `filepath`.
@@ -114,6 +173,9 @@ def lint_file(filepath: Path, is_src: bool = False) -> list[str]:
 
     if not ast.get_docstring(tree):
         errors.append(f"{filepath}:1: Missing module docstring.")
+
+    if is_src:
+        errors.extend(_check_src_dunder_all(filepath, tree))
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
@@ -146,6 +208,15 @@ def lint_file(filepath: Path, is_src: bool = False) -> list[str]:
             if node.returns is None:
                 errors.append(
                     f"{filepath}:{node.lineno}: Function '{node.name}' is missing a return type annotation."
+                )
+            elif (
+                is_src
+                and doc
+                and not _is_none_return(node.returns)
+                and not _has_returns_section(doc)
+            ):
+                errors.append(
+                    f"{filepath}:{node.lineno}: Function '{node.name}' with non-None return is missing Returns: section."
                 )
 
             all_args = [

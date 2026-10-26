@@ -436,6 +436,20 @@ def test_reference_optimizers_parity() -> None:
             optax.rmsprop(0.1, centered=True, momentum=0.9),
         ),
         (zero_optax.yogi(0.1), optax.yogi(0.1)),
+        (zero_optax.adamax(0.1), optax.adamax(0.1)),
+        (
+            zero_optax.adamaxw(0.1, weight_decay=1e-3),
+            optax.adamaxw(0.1, weight_decay=1e-3),
+        ),
+        (zero_optax.amsgrad(0.1), optax.amsgrad(0.1)),
+        (zero_optax.radam(0.1), optax.radam(0.1)),
+        (zero_optax.rprop(0.1), optax.rprop(0.1)),
+        (zero_optax.sm3(0.1), optax.sm3(0.1)),
+        (zero_optax.sign_sgd(0.1), optax.sign_sgd(0.1)),
+        (
+            zero_optax.optimistic_gradient_descent(0.1),
+            optax.optimistic_gradient_descent(0.1),
+        ),
     ]
 
     for z_opt, o_opt in pairs:
@@ -456,3 +470,76 @@ def test_reference_optimizers_parity() -> None:
                 rtol=1e-4,
                 atol=1e-4,
             )
+
+    # Rprop sign-flip step parity test
+    z_rp = zero_optax.rprop(0.1)
+    o_rp = optax.rprop(0.1)
+    z_rp_st = z_rp.init(z_params)
+    o_rp_st = o_rp.init(j_params)
+    z_rp_u0, z_rp_st = z_rp.update(z_grads, z_rp_st, z_params)
+    o_rp_u0, o_rp_st = o_rp.update(j_grads, o_rp_st, j_params)
+    assert_allclose_optax(
+        get_tree_item(z_rp_u0, "w"), np.asarray(o_rp_u0["w"]), rtol=1e-4, atol=1e-4
+    )
+    z_flip_grads = {"w": asarray([-0.1, 0.2]), "b": asarray([-0.05])}
+    j_flip_grads = {
+        "w": jnp.array([-0.1, 0.2], dtype=jnp.float32),
+        "b": jnp.array([-0.05], dtype=jnp.float32),
+    }
+    z_rp_u1, _ = z_rp.update(z_flip_grads, z_rp_st, z_params)
+    o_rp_u1, _ = o_rp.update(j_flip_grads, o_rp_st, j_params)
+    assert_allclose_optax(
+        get_tree_item(z_rp_u1, "w"), np.asarray(o_rp_u1["w"]), rtol=1e-4, atol=1e-4
+    )
+
+    # Adafactor factored 2D parity test (min_dim_size_to_factor=2)
+    z_p2d = {"m": asarray([[1.0, -2.0, 0.5], [0.5, 1.5, -1.0]])}
+    z_g2d = {"m": asarray([[0.1, -0.2, 0.05], [-0.15, 0.25, 0.1]])}
+    j_p2d = {"m": jnp.array([[1.0, -2.0, 0.5], [0.5, 1.5, -1.0]], dtype=jnp.float32)}
+    j_g2d = {"m": jnp.array([[0.1, -0.2, 0.05], [-0.15, 0.25, 0.1]], dtype=jnp.float32)}
+
+    for z_af, o_af in (
+        (
+            zero_optax.adafactor(learning_rate=0.1, min_dim_size_to_factor=2),
+            optax.adafactor(learning_rate=0.1, min_dim_size_to_factor=2),
+        ),
+        (
+            zero_optax.sm3(0.1, momentum=0.9),
+            optax.sm3(0.1, momentum=0.9),
+        ),
+    ):
+        z_st = z_af.init(z_p2d)
+        o_st = o_af.init(j_p2d)
+        for _ in range(2):
+            z_u2, z_st = z_af.update(z_g2d, z_st, z_p2d)
+            o_u2, o_st = o_af.update(j_g2d, o_st, j_p2d)
+            assert_allclose_optax(
+                get_tree_item(z_u2, "m"),
+                np.asarray(o_u2["m"]),
+                rtol=1e-4,
+                atol=1e-4,
+            )
+
+    # Masked global norm parity test: masked leaves must not contribute to global norm
+    mask_dict = {"w": True, "b": False}
+    z_mclip = zero_optax.masked(zero_optax.clip_by_global_norm(0.05), mask_dict)
+    o_mclip = optax.masked(optax.clip_by_global_norm(0.05), mask_dict)
+    z_mc_u, _ = z_mclip.update(
+        {"w": asarray([3.0, 4.0]), "b": asarray([100.0])},
+        z_mclip.init(z_params),
+        z_params,
+    )
+    o_mc_u, _ = o_mclip.update(
+        {
+            "w": jnp.array([3.0, 4.0], dtype=jnp.float32),
+            "b": jnp.array([100.0], dtype=jnp.float32),
+        },
+        o_mclip.init(j_params),
+        j_params,
+    )
+    assert_allclose_optax(
+        get_tree_item(z_mc_u, "w"), np.asarray(o_mc_u["w"]), rtol=1e-5, atol=1e-5
+    )
+    assert_allclose_optax(
+        get_tree_item(z_mc_u, "b"), np.asarray(o_mc_u["b"]), rtol=1e-5, atol=1e-5
+    )

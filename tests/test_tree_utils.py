@@ -453,9 +453,35 @@ def test_tree_state_utils_get_set_and_map_params() -> None:
         transform_non_params=lambda x: x,
     )
     assert isinstance(mapped_custom, dict)
+    p_sub = mapped_custom["p"]
+    assert isinstance(p_sub, dict)
+    dc_sub = p_sub["dc"]
+    assert isinstance(dc_sub, _SampleChexDC)
+    assert_allclose_optax(dc_sub.x, np.array([2.0]))
+    l_sub = p_sub["l"]
+    assert isinstance(l_sub, list) and isinstance(l_sub[0], Tensor)
+    assert_allclose_optax(l_sub[0], np.array([4.0]))
+    t_sub = p_sub["t"]
+    assert isinstance(t_sub, tuple) and isinstance(t_sub[0], Tensor)
+    assert_allclose_optax(t_sub[0], np.array([6.0]))
+    assert mapped_custom["extra_meta"] == 42
+
     mapped_custom_no_tnp = zero_optax.tree_map_params(
         _custom_init,
         _double_param,
         custom_state,
     )
     assert isinstance(mapped_custom_no_tnp, dict)
+    assert mapped_custom_no_tnp["extra_meta"] == 42
+
+    # Verify parameter of shape (3, 1, 7) does not collide with sentinel shape
+    p_317: dict[str, PyTree] = {"w317": zero_optax._tree.zeros((3, 1, 7))}
+    st_317 = opt.init(p_317)
+    mapped_317 = zero_optax.tree_map_params(
+        opt,
+        lambda x: asarray(x) + 5.0,
+        st_317,
+    )
+    mu_317 = zero_optax.tree_utils.tree_get(mapped_317, "mu")
+    assert isinstance(mu_317, dict)
+    assert_allclose_optax(get_tree_item(mu_317, "w317"), np.full((3, 1, 7), 5.0))

@@ -96,16 +96,19 @@ def lion(
             TypeError: If `state` is not a `LionState`.
             ValueError: If `params` is None.
         """
-        if params is None:
+        if params is None and (callable(weight_decay) or weight_decay != 0.0):
             raise ValueError("`params` must be provided to `lion` update.")
         if not isinstance(state, LionState):
             raise TypeError(f"Expected LionState in lion, got {type(state)!r}.")
 
         count = state.scale_state.count
         sign_updates, next_lion = lion_tx.update(updates, state.lion_state, params)
-        decayed_updates, _ = wd_tx.update(
-            sign_updates, AddDecayedWeightsState(count=count), params
-        )
+        if params is not None:
+            decayed_updates, _ = wd_tx.update(
+                sign_updates, AddDecayedWeightsState(count=count), params
+            )
+        else:
+            decayed_updates = sign_updates
         new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, LionState(
             lion_state=next_lion,

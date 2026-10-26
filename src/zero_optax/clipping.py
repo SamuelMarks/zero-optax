@@ -10,11 +10,13 @@ from zero_optax._tree import (
     minimum,
     reduce_mean,
     reduce_sum,
+    reshape,
     sqrt,
     tree_l2_norm,
     tree_leaves,
     tree_map,
     where,
+    zeros,
 )
 from zero_optax._types import Params, PyTree, Tensor, TensorLeaf, Updates
 from zero_optax.base import EmptyState, GradientTransformation, OptState
@@ -336,24 +338,22 @@ def per_example_global_norm_clip(
     if not leaves:
         return grads, asarray(0, dtype="int32")
     batch_size = leaves[0].shape[0]
-    sq_norms = [0.0] * batch_size
+    sq_norms = zeros((batch_size,), dtype=leaves[0].dtype)
     for leaf_t in leaves:
-        for b_idx in range(batch_size):
-            row = leaf_t[b_idx]
-            sq_norms[b_idx] += float(reduce_sum(row * row).item())
-
-    scales: list[float] = []
-    num_clipped = 0
-    for sq in sq_norms:
-        norm_i = float(sqrt(asarray(sq)).item())
-        if norm_i > l2_norm_clip:
-            num_clipped += 1
-            scales.append(l2_norm_clip / norm_i if norm_i > 0.0 else 1.0)
+        if leaf_t.ndim > 1:
+            axes = tuple(range(1, leaf_t.ndim))
+            sq_norms = sq_norms + reduce_sum(leaf_t * leaf_t, axis=axes)
         else:
-            scales.append(1.0)
+            sq_norms = sq_norms + leaf_t * leaf_t
+
+    norms = sqrt(sq_norms)
+    is_clipped = norms > l2_norm_clip
+    num_clipped = asarray(reduce_sum(is_clipped), dtype="int32")
+    safe_norms = where(norms > 0.0, norms, 1.0)
+    scales_vec = where(is_clipped, l2_norm_clip / safe_norms, 1.0)
 
     def _clip_and_sum_leaf(g: TensorLeaf) -> TensorLeaf:
-        """Scale each example slice `g[b]` by `scales[b]` and sum over axis 0.
+        """Broadcast `scales_vec` over `g` and sum across batch axis 0.
 
         Args:
             g: Batched gradient leaf of shape `[batch_size, ...]`.
@@ -364,12 +364,11 @@ def per_example_global_norm_clip(
         if g is None:
             return None
         g_t = asarray(g)
-        acc = g_t[0] * scales[0]
-        for b_idx in range(1, batch_size):
-            acc = acc + g_t[b_idx] * scales[b_idx]
-        return acc
+        bcast_shape = (batch_size, *(1 for _ in range(g_t.ndim - 1)))
+        s_bcast = reshape(scales_vec, bcast_shape)
+        return reduce_sum(g_t * s_bcast, axis=0)
 
-    return tree_map(_clip_and_sum_leaf, grads), asarray(num_clipped, dtype="int32")
+    return tree_map(_clip_and_sum_leaf, grads), num_clipped
 
 
 __all__ = [

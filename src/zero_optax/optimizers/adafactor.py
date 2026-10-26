@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from zero_optax._tree import (
     asarray,
+    expand_dims,
+    maximum,
+    minimum,
+    power,
     reduce_mean,
     sqrt,
     tree_map,
-    tree_zeros_like,
     zeros,
+    zeros_like,
 )
 from zero_optax._types import (
     DTypeLike,
@@ -26,6 +30,7 @@ from zero_optax._types import (
 from zero_optax.base import (
     GradientTransformation,
     OptState,
+    _as_count_tensor,
     _OptStateDataclassBase,
     identity,
 )
@@ -69,6 +74,24 @@ class FactoredState(_OptStateDataclassBase):
             "v": self.v,
         }
 
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> FactoredState:
+        """Construct `FactoredState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, v_row, v_col, v)`.
+
+        Returns:
+            Reconstructed `FactoredState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            v_row=items[1],
+            v_col=items[2],
+            v=items[3],
+        )
+
 
 def _default_decay_rate_fn(step: int, decay_rate: float) -> float:
     """Compute default Adafactor second-moment decay rate `1 - (step + 1) ** (-decay_rate)`.
@@ -80,8 +103,9 @@ def _default_decay_rate_fn(step: int, decay_rate: float) -> float:
     Returns:
         Scalar decay factor in `[0, 1)`.
     """
-    val = 1.0 - float(max(float(step + 1), 1.0) ** (-float(decay_rate)))
-    return float(min(val, 0.999999))
+    step_t = maximum(asarray(step) + 1.0, 1.0)
+    val_t = minimum(1.0 - power(step_t, -float(decay_rate)), 0.999999)
+    return float(val_t.item())
 
 
 def scale_by_factored_rms(
@@ -132,7 +156,7 @@ def scale_by_factored_rms(
         """
 
         def _init_row(p: TensorLeaf) -> TensorLeaf:
-            """Initialize `v_row` leaf if factored, else scalar 0.
+            """Initialize `v_row` leaf if factored, else 1-element zero tensor.
 
             Args:
                 p: Parameter leaf.
@@ -148,7 +172,7 @@ def scale_by_factored_rms(
             return zeros((1,), dtype=p_t.dtype)
 
         def _init_col(p: TensorLeaf) -> TensorLeaf:
-            """Initialize `v_col` leaf if factored, else scalar 0.
+            """Initialize `v_col` leaf if factored, else 1-element zero tensor.
 
             Args:
                 p: Parameter leaf.
@@ -163,11 +187,27 @@ def scale_by_factored_rms(
                 return zeros((*p_t.shape[:-2], p_t.shape[-1]), dtype=p_t.dtype)
             return zeros((1,), dtype=p_t.dtype)
 
+        def _init_v(p: TensorLeaf) -> TensorLeaf:
+            """Initialize `v` leaf to `zeros((1,))` when factored else `zeros_like(p)`.
+
+            Args:
+                p: Parameter leaf.
+
+            Returns:
+                Unfactored second-moment Tensor leaf.
+            """
+            if p is None:
+                return None
+            p_t = asarray(p)
+            if _should_factor(p_t.shape):
+                return zeros((1,), dtype=p_t.dtype)
+            return zeros_like(p_t)
+
         return FactoredState(
             count=asarray(0),
             v_row=tree_map(_init_row, params),
             v_col=tree_map(_init_col, params),
-            v=tree_zeros_like(params),
+            v=tree_map(_init_v, params),
         )
 
     def update_fn(
@@ -194,9 +234,8 @@ def scale_by_factored_rms(
                 f"Expected FactoredState in scale_by_factored_rms, got {type(state)!r}."
             )
         count_inc = state.count + 1
-        decay_t = float(
-            decay_rate_fn(max(int(state.count.item()) - step_offset, 0), decay_rate)
-        )
+        step_shifted = int(maximum(state.count - step_offset, 0).item())
+        decay_t = float(decay_rate_fn(step_shifted, decay_rate))
 
         def _update_v_row(vr: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update row second moment factor when `_should_factor(g.shape)`.
@@ -249,27 +288,46 @@ def scale_by_factored_rms(
             if v_leaf is None or g is None:
                 return v_leaf
             g_t = asarray(g)
+            if _should_factor(g_t.shape):
+                return asarray(v_leaf)
             g2 = g_t * g_t + epsilon
             return asarray(decay_t * asarray(v_leaf) + (1.0 - decay_t) * g2)
 
-        def _scale_leaf(g: TensorLeaf, v_new: TensorLeaf) -> TensorLeaf:
-            """Scale `g` by `1 / sqrt(v_new)`.
+        def _scale_leaf(
+            g: TensorLeaf,
+            vr_new: TensorLeaf,
+            vc_new: TensorLeaf,
+            v_new: TensorLeaf,
+        ) -> TensorLeaf:
+            """Scale `g` using reconstructed factored outer product or unfactored `v_new`.
 
             Args:
                 g: Current gradient leaf.
-                v_new: Updated second-moment leaf.
+                vr_new: Updated row factor leaf.
+                vc_new: Updated column factor leaf.
+                v_new: Updated unfactored second-moment leaf.
 
             Returns:
                 Scaled gradient leaf.
             """
-            if g is None or v_new is None:
+            if g is None or vr_new is None or vc_new is None or v_new is None:
                 return g
-            return asarray(g) / sqrt(asarray(v_new))
+            g_t = asarray(g)
+            if _should_factor(g_t.shape):
+                vr_t = asarray(vr_new)
+                vc_t = asarray(vc_new)
+                row_factor = expand_dims(vr_t, -1)
+                col_factor = expand_dims(vc_t, -2)
+                row_mean = expand_dims(reduce_mean(vr_t, axis=-1, keepdims=True), -1)
+                r_factor = row_factor / row_mean
+                c_factor = col_factor
+                return g_t / (sqrt(r_factor) * sqrt(c_factor))
+            return g_t / sqrt(asarray(v_new))
 
         new_v_row = tree_map(_update_v_row, state.v_row, updates)
         new_v_col = tree_map(_update_v_col, state.v_col, updates)
         new_v = tree_map(_update_v, state.v, updates)
-        out_updates = tree_map(_scale_leaf, updates, new_v)
+        out_updates = tree_map(_scale_leaf, updates, new_v_row, new_v_col, new_v)
         return (
             out_updates,
             FactoredState(
@@ -328,11 +386,11 @@ def adafactor(
         Returns:
             Scalar step size Tensor.
         """
-        s_val = float(step.item()) if isinstance(step, Tensor) else float(step)
-        inv_sqrt = 1.0 / float(sqrt(asarray(s_val + 1.0)).item())
+        step_t = asarray(step, dtype="float32")
+        inv_sqrt = 1.0 / sqrt(step_t + 1.0)
         if multiply_by_parameter_scale:
-            return asarray(min(inv_sqrt, 1e-2))
-        return asarray(inv_sqrt * 1e-2)
+            return minimum(inv_sqrt, 1e-2)
+        return inv_sqrt * 1e-2
 
     lr_eff: ScalarOrSchedule = (
         learning_rate if learning_rate is not None else _default_adafactor_lr

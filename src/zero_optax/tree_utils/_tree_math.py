@@ -9,15 +9,20 @@ from zero_optax._tree import (
     _coerce_pytree_child,
     abs_tensor,
     asarray,
+    expand_dims,
     full_like,
     maximum,
     minimum,
+    ones,
     ones_like,
+    power,
     reduce_max,
+    reduce_min,
     reduce_sum,
     reshape,
     tree_leaves,
     tree_map,
+    where,
 )
 from zero_optax._tree import (
     tree_l2_norm as _base_tree_l2_norm,
@@ -75,9 +80,7 @@ def _flatten_tensor_floats(t: Tensor) -> list[float]:
     prod = 1
     for dim in t.shape:
         prod *= dim
-    if prod == 0:
-        return []
-    flat = reshape(t, (prod,))
+    flat = reshape(t, (prod,)) if prod > 0 else t
     return [float(flat[i].item()) for i in range(prod)]
 
 
@@ -318,11 +321,11 @@ def tree_conj(tree: PyTree) -> PyTree:
         tree: Input PyTree.
 
     Returns:
-        Conjugated PyTree with identical structure.
+        Conjugated PyTree with identical structure (returns real tensors unchanged).
     """
 
     def _conj_leaf(x: TensorLeaf) -> TensorLeaf:
-        """Return conjugate of leaf `x` (identity for real tensors).
+        """Return conjugate of leaf `x` (real-valued tensor leaves are returned as-is).
 
         Args:
             x: Input leaf.
@@ -330,7 +333,10 @@ def tree_conj(tree: PyTree) -> PyTree:
         Returns:
             Conjugated Tensor leaf.
         """
-        return None if x is None else asarray(x)
+        if x is None:
+            return None
+        t = asarray(x)
+        return asarray(t, dtype=t.dtype)
 
     return tree_map(_conj_leaf, tree)
 
@@ -354,7 +360,10 @@ def tree_real(tree: PyTree) -> PyTree:
         Returns:
             Real Tensor leaf.
         """
-        return None if x is None else asarray(x)
+        if x is None:
+            return None
+        t = asarray(x)
+        return asarray(t, dtype=t.dtype)
 
     return tree_map(_real_leaf, tree)
 
@@ -605,13 +614,11 @@ def tree_batch_shape(
         if x is None:
             return None
         t = asarray(x)
-        target_shape = (*shape, *t.shape)
-        total_prefix = 1
-        for dim in shape:
-            total_prefix *= dim
-        flat_vals = _flatten_tensor_floats(t)
-        tiled = flat_vals * total_prefix
-        return reshape(asarray(tiled, dtype=t.dtype), target_shape)
+        expanded = t
+        for _ in shape:
+            expanded = expand_dims(expanded, 0)
+        prefix_ones = ones((*shape, *(1 for _ in t.shape)), dtype=t.dtype)
+        return asarray(prefix_ones * expanded, dtype=t.dtype)
 
     return tree_map(_batch_leaf, tree)
 
@@ -667,9 +674,9 @@ def tree_min(tree: PyTree) -> Tensor:
     leaves = [asarray(leaf) for leaf in tree_leaves(tree) if leaf is not None]
     if not leaves:
         return asarray(float("inf"))
-    curr_min = -reduce_max(-leaves[0])
+    curr_min = reduce_min(leaves[0])
     for leaf in leaves[1:]:
-        curr_min = minimum(curr_min, -reduce_max(-leaf))
+        curr_min = minimum(curr_min, reduce_min(leaf))
     return curr_min
 
 
@@ -993,9 +1000,9 @@ def tree_bias_correction(
     Returns:
         Bias-corrected moment PyTree.
     """
-    c_int = int(count.item()) if isinstance(count, Tensor) else int(count)
-    denom = 1.0 - (decay**c_int)
-    safe_denom = denom if abs(denom) > 1e-12 else 1.0
+    count_t = asarray(count, dtype="float32")
+    denom = 1.0 - power(asarray(decay, dtype="float32"), count_t)
+    safe_denom = where(abs_tensor(denom) > 1e-12, denom, 1.0)
 
     def _div_bc(m: TensorLeaf) -> TensorLeaf:
         """Divide moment leaf by `1 - decay ** count`.

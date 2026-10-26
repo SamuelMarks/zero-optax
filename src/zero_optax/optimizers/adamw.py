@@ -110,16 +110,19 @@ def adamw(
             TypeError: If `state` is not an `AdamwState`.
             ValueError: If `params` is None.
         """
-        if params is None:
+        if params is None and (callable(weight_decay) or weight_decay != 0.0):
             raise ValueError("`params` must be provided to `adamw` update.")
         if not isinstance(state, AdamwState):
             raise TypeError(f"Expected AdamwState in adamw, got {type(state)!r}.")
 
         count = state.scale_state.count
         adam_updates, next_adam = adam_tx.update(updates, state.adam_state, params)
-        decayed_updates, _ = wd_tx.update(
-            adam_updates, AddDecayedWeightsState(count=count), params
-        )
+        if params is not None:
+            decayed_updates, _ = wd_tx.update(
+                adam_updates, AddDecayedWeightsState(count=count), params
+            )
+        else:
+            decayed_updates = adam_updates
         new_updates, _ = lr_tx.update(decayed_updates, state.scale_state, params)
         return new_updates, AdamwState(
             adam_state=next_adam,

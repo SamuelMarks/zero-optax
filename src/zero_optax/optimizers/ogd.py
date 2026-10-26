@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from zero_optax._tree import (
@@ -9,6 +10,7 @@ from zero_optax._tree import (
     evaluate_schedule,
     tree_map,
     tree_zeros_like,
+    where,
 )
 from zero_optax._types import (
     Params,
@@ -21,6 +23,7 @@ from zero_optax._types import (
 from zero_optax.base import (
     GradientTransformation,
     OptState,
+    _as_count_tensor,
     _OptStateDataclassBase,
 )
 from zero_optax.combine import chain
@@ -47,6 +50,19 @@ class ScaleByOptimisticGradientState(_OptStateDataclassBase):
             Dictionary with `'count'` and `'trace'`.
         """
         return {"count": self.count, "trace": self.trace}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByOptimisticGradientState:
+        """Construct `ScaleByOptimisticGradientState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, trace)`.
+
+        Returns:
+            Reconstructed `ScaleByOptimisticGradientState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), trace=items[1])
 
 
 def scale_by_optimistic_gradient(
@@ -100,7 +116,7 @@ def scale_by_optimistic_gradient(
             raise TypeError(
                 f"Expected ScaleByOptimisticGradientState, got {type(state)!r}."
             )
-        c_val = int(state.count.item())
+        is_step0 = state.count == 0
         a_t = evaluate_schedule(alpha, state.count)
         b_t = evaluate_schedule(beta, state.count)
 
@@ -117,9 +133,11 @@ def scale_by_optimistic_gradient(
             if g is None or prev_g is None:
                 return g
             g_arr = asarray(g)
-            if c_val == 0:
-                return a_t * g_arr
-            return (a_t + b_t) * g_arr - b_t * asarray(prev_g)
+            return where(
+                is_step0,
+                a_t * g_arr,
+                (a_t + b_t) * g_arr - b_t * asarray(prev_g),
+            )
 
         out_updates = tree_map(_ogd_leaf, updates, state.trace)
         return (

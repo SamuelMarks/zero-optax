@@ -94,6 +94,19 @@ class _OptStateDataclassBase(Mapping[str, PyTree]):
         """
         return len(self._fields)
 
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> _OptStateDataclassBase:
+        """Construct a new state dataclass instance from a sequence of field values.
+
+        Args:
+            iterable: Sequence of field values matching `_fields`.
+
+        Returns:
+            Reconstructed `_OptStateDataclassBase` instance.
+        """
+        del iterable
+        return cls()
+
 
 def _as_count_tensor(val: PyTree) -> Tensor:
     """Coerce a deserialized count field into a `Tensor`.
@@ -326,26 +339,39 @@ class GradientTransformationExtraArgs(GradientTransformation[StateT_co]):
 
     def __init__(
         self,
-        update: TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co],
+        update: TransformUpdateExtraArgsFn[StateT_co]
+        | TransformInitFn[StateT_co]
+        | None = None,
         *args: TransformUpdateExtraArgsFn[StateT_co] | PyTree,
-        **kwargs: TransformUpdateExtraArgsFn[StateT_co] | PyTree,
+        **kwargs: TransformUpdateExtraArgsFn[StateT_co]
+        | TransformInitFn[StateT_co]
+        | PyTree,
     ) -> None:
         """Initialize a `GradientTransformationExtraArgs` from `(init, update)`.
 
         Args:
-            update: Either `init` (when `update` is passed as the second positional argument in `*args`
-                or in `**kwargs`) or the `update` callable directly.
+            update: Either `init` (when `update` is passed as the second positional argument in `*args`)
+                or `update` when `init` is passed via `**kwargs`.
             *args: Second positional argument `update` callable.
-            **kwargs: Optional keyword argument `update` callable.
+            **kwargs: Optional keyword argument `init` callable.
 
         Raises:
             TypeError: If both `init` and `update` callables are not provided.
         """
-        second_fn: TransformUpdateExtraArgsFn[StateT_co] | PyTree = (
-            args[0] if len(args) >= 1 else kwargs.get("init")
+        first_fn: (
+            TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co] | PyTree
+        ) = kwargs.get("init", update)
+        second_fn: (
+            TransformUpdateExtraArgsFn[StateT_co] | TransformInitFn[StateT_co] | PyTree
+        ) = (
+            args[0]
+            if len(args) >= 1
+            else (update if "init" in kwargs else kwargs.get("update"))
         )
-        if _is_init_fn(update, callable(second_fn)) and _is_update_extra_fn(second_fn):
-            self.init = update
+        if _is_init_fn(first_fn, callable(second_fn)) and _is_update_extra_fn(
+            second_fn
+        ):
+            self.init = first_fn
             self.update = second_fn
         else:
             raise TypeError(
@@ -570,8 +596,10 @@ def _unwrap_orbax_state_dict(
             VariableLeafProtocol,
             CustomMappingPyTreeProtocol,
         ),
-    ):
+    ) and not isinstance(raw, dict):
         return raw
+    if isinstance(raw, Mapping):
+        return {str(k): _unwrap_orbax_state_dict(v) for k, v in raw.items()}
     if isinstance(raw, tuple):
         return tuple(_unwrap_orbax_state_dict(item) for item in raw)
     if isinstance(raw, list):

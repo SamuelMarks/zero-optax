@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
-import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NamedTuple, Union
 
 from zero_optax._tree import (
+    INF,
+    _coerce_pytree_child,
+    _coerce_submask,
+    _rebuild_mapping,
+    _rebuild_sequence,
+    abs_tensor,
     apply_mask_tree,
     asarray,
+    reduce_sum,
     reshape,
     resolve_mask,
+    tree_l2_norm,
     tree_leaves,
     tree_zeros_like,
 )
 from zero_optax._types import (
     ArrayLike,
+    CustomMappingPyTreeProtocol,
     DTypeLike,
+    MaskedNode,
     MaskOrFn,
     MaskTree,
     Params,
@@ -25,12 +34,14 @@ from zero_optax._types import (
     Tensor,
     TensorLeaf,
     Updates,
+    VariableLeafProtocol,
 )
 from zero_optax.base import (
     ExtraArgValue,
     GradientTransformation,
     GradientTransformationExtraArgs,
     OptState,
+    _as_count_tensor,
     _OptStateDataclassBase,
     set_to_zero,
 )
@@ -38,14 +49,11 @@ from zero_optax.projections._projections import _is_scalar_bound
 from zero_optax.tree_utils._random import _unflatten_like
 from zero_optax.tree_utils._tree_math import (
     _flatten_tensor_floats,
+    _structure_signature,
     tree_add,
     tree_scalar_mul,
     tree_sub,
 )
-
-
-class MaskedNode(NamedTuple):
-    """Sentinel node replacing masked-out (`False`) leaves inside `masked` states."""
 
 
 class MaskedState(NamedTuple):
@@ -109,6 +117,23 @@ class LookaheadState(_OptStateDataclassBase):
             "steps_since_sync": self.steps_since_sync,
         }
 
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> LookaheadState:
+        """Construct `LookaheadState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(fast_state, slow_params, steps_since_sync)`.
+
+        Returns:
+            Reconstructed `LookaheadState`.
+        """
+        items = list(iterable)
+        return cls(
+            fast_state=items[0],
+            slow_params=items[1],
+            steps_since_sync=_as_count_tensor(items[2]),
+        )
+
 
 ShouldSkipUpdateFunction = Callable[
     [Updates, Tensor, Union[Params, None]],
@@ -155,6 +180,25 @@ class MultiStepsState(_OptStateDataclassBase):
             "skip_state": self.skip_state,
         }
 
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> MultiStepsState:
+        """Construct `MultiStepsState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(mini_step, gradient_step, inner_opt_state, acc_grads, skip_state)`.
+
+        Returns:
+            Reconstructed `MultiStepsState`.
+        """
+        items = list(iterable)
+        return cls(
+            mini_step=_as_count_tensor(items[0]),
+            gradient_step=_as_count_tensor(items[1]),
+            inner_opt_state=items[2],
+            acc_grads=items[3],
+            skip_state=items[4] if len(items) > 4 else (),
+        )
+
 
 def skip_not_finite(
     updates: Updates,
@@ -174,11 +218,13 @@ def skip_not_finite(
     del gradient_step, params
     has_bad = False
     for leaf in tree_leaves(updates):
-        if leaf is not None:
-            for val in _flatten_tensor_floats(asarray(leaf)):
-                if math.isnan(val) or math.isinf(val):
-                    has_bad = True
-                    break
+        if leaf is not None and not isinstance(leaf, MaskedNode):
+            t = asarray(leaf)
+            nan_cnt = int(reduce_sum(t != t).item())
+            inf_cnt = int(reduce_sum(abs_tensor(t) == INF).item())
+            if nan_cnt > 0 or inf_cnt > 0:
+                has_bad = True
+                break
     flag = asarray(has_bad)
     return flag, {"should_skip": flag}
 
@@ -201,14 +247,112 @@ def skip_large_deltas(
         Tuple `(should_skip, info_dict)`.
     """
     del gradient_step, params
-    sq_sum = 0.0
-    for leaf in tree_leaves(updates):
-        if leaf is not None:
-            for val in _flatten_tensor_floats(asarray(leaf)):
-                sq_sum += val * val
-    should_skip = math.isnan(sq_sum) or math.isinf(sq_sum) or (sq_sum >= max_Sqr_norm)
+    sq_sum_t = tree_l2_norm(updates, squared=True)
+    nan_cnt = int(reduce_sum(sq_sum_t != sq_sum_t).item())
+    inf_cnt = int(reduce_sum(abs_tensor(sq_sum_t) == INF).item())
+    should_skip = nan_cnt > 0 or inf_cnt > 0 or (float(sq_sum_t.item()) >= max_Sqr_norm)
     flag = asarray(should_skip)
-    return flag, {"should_skip": flag, "norm_sqr": asarray(sq_sum)}
+    return flag, {"should_skip": flag, "norm_sqr": sq_sum_t}
+
+
+def _mask_tree_with_sentinel(tree: PyTree, mask_tree: MaskTree) -> PyTree:
+    """Replace leaves/subtrees of `tree` where `mask_tree` is `False` with `MaskedNode()`.
+
+    Args:
+        tree: Input PyTree (`params` or `updates`).
+        mask_tree: Boolean or nested boolean prefix PyTree.
+
+    Returns:
+        PyTree with `MaskedNode()` where `mask_tree` is `False`.
+    """
+    if isinstance(mask_tree, VariableLeafProtocol):
+        return tree if bool(mask_tree.value) else MaskedNode()
+    if isinstance(mask_tree, bool):
+        return tree if mask_tree else MaskedNode()
+    if isinstance(mask_tree, (Mapping, CustomMappingPyTreeProtocol)) and isinstance(
+        tree, (Mapping, CustomMappingPyTreeProtocol)
+    ):
+        mask_keys = set(mask_tree.keys())
+        return _rebuild_mapping(
+            tree,
+            {
+                k: _mask_tree_with_sentinel(
+                    _coerce_pytree_child(tree[k]),
+                    _coerce_submask(_coerce_pytree_child(mask_tree[k]))
+                    if k in mask_keys
+                    else True,
+                )
+                for k in tree
+            },
+        )
+    if (
+        isinstance(mask_tree, (tuple, list))
+        and isinstance(tree, (tuple, list))
+        and not isinstance(tree, MaskedNode)
+    ):
+        return _rebuild_sequence(
+            tree,
+            [
+                _mask_tree_with_sentinel(t_val, m_val)
+                for t_val, m_val in zip(tree, mask_tree)
+            ],
+        )
+    return tree
+
+
+def _unmask_tree_with_fallback(
+    masked_tree: PyTree,
+    fallback_tree: PyTree,
+    mask_tree: MaskTree,
+) -> PyTree:
+    """Restore leaves from `fallback_tree` wherever `mask_tree` is `False` or `masked_tree` is `MaskedNode`.
+
+    Args:
+        masked_tree: PyTree returned by `inner.update`.
+        fallback_tree: Original unmasked `updates` PyTree.
+        mask_tree: Resolved boolean prefix `MaskTree`.
+
+    Returns:
+        Unmasked PyTree combining transformed `True` leaves with original `False` leaves.
+    """
+    if isinstance(masked_tree, MaskedNode):
+        return fallback_tree
+    if isinstance(mask_tree, VariableLeafProtocol):
+        return masked_tree if bool(mask_tree.value) else fallback_tree
+    if isinstance(mask_tree, bool):
+        return masked_tree if mask_tree else fallback_tree
+    if (
+        isinstance(mask_tree, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(masked_tree, (Mapping, CustomMappingPyTreeProtocol))
+        and isinstance(fallback_tree, (Mapping, CustomMappingPyTreeProtocol))
+    ):
+        mask_keys = set(mask_tree.keys())
+        return _rebuild_mapping(
+            fallback_tree,
+            {
+                k: _unmask_tree_with_fallback(
+                    _coerce_pytree_child(masked_tree[k]),
+                    _coerce_pytree_child(fallback_tree[k]),
+                    _coerce_submask(_coerce_pytree_child(mask_tree[k]))
+                    if k in mask_keys
+                    else True,
+                )
+                for k in fallback_tree
+            },
+        )
+    if (
+        isinstance(mask_tree, (tuple, list))
+        and isinstance(masked_tree, (tuple, list))
+        and isinstance(fallback_tree, (tuple, list))
+    ):
+        return _rebuild_sequence(
+            fallback_tree,
+            [
+                _unmask_tree_with_fallback(m_val, f_val, b_val)
+                for m_val, f_val, b_val in zip(masked_tree, fallback_tree, mask_tree)
+            ],
+        )
+    return apply_mask_tree(masked_tree, fallback_tree, mask_tree)
 
 
 def masked(
@@ -227,10 +371,9 @@ def masked(
     Returns:
         A `GradientTransformationExtraArgs` wrapping `inner`.
     """
-    del mask_compatible_extra_args
 
     def init_fn(params: Params) -> MaskedState:
-        """Initialize `MaskedState` using `inner.init(params)`.
+        """Initialize `MaskedState` using `inner.init` on `MaskedNode`-masked `params`.
 
         Args:
             params: Model parameters PyTree.
@@ -238,7 +381,13 @@ def masked(
         Returns:
             Initialized `MaskedState`.
         """
-        return MaskedState(inner_state=inner.init(params))
+        resolved_mask = resolve_mask(mask, params) if params is not None else None
+        masked_params = (
+            _mask_tree_with_sentinel(params, resolved_mask)
+            if resolved_mask is not None
+            else params
+        )
+        return MaskedState(inner_state=inner.init(masked_params))
 
     def update_fn(
         updates: Updates,
@@ -246,7 +395,7 @@ def masked(
         params: Params | None = None,
         **extra_args: ExtraArgValue,
     ) -> tuple[Updates, MaskedState]:
-        """Apply `inner.update` and select transformed updates only where `mask` is `True`.
+        """Apply `inner.update` on masked leaves and restore original updates where `mask` is `False`.
 
         Args:
             updates: Gradient updates PyTree.
@@ -266,16 +415,36 @@ def masked(
         resolved_mask: MaskTree | None = (
             resolve_mask(mask, ref_tree) if ref_tree is not None else None
         )
+        masked_updates = (
+            _mask_tree_with_sentinel(updates, resolved_mask)
+            if resolved_mask is not None
+            else updates
+        )
+        masked_params = (
+            _mask_tree_with_sentinel(params, resolved_mask)
+            if (params is not None and resolved_mask is not None)
+            else params
+        )
+        forwarded_extra: dict[str, ExtraArgValue] = dict(extra_args)
+        if mask_compatible_extra_args and resolved_mask is not None:
+            upd_sig = _structure_signature(updates)
+            for k_ex, v_ex in extra_args.items():
+                if not callable(v_ex) and _structure_signature(v_ex) == upd_sig:
+                    forwarded_extra[k_ex] = _mask_tree_with_sentinel(
+                        v_ex, resolved_mask
+                    )
         if isinstance(inner, GradientTransformationExtraArgs):
             new_updates, new_inner_state = inner.update(
-                updates, state.inner_state, params, **extra_args
+                masked_updates, state.inner_state, masked_params, **forwarded_extra
             )
         else:
             new_updates, new_inner_state = inner.update(
-                updates, state.inner_state, params
+                masked_updates, state.inner_state, masked_params
             )
         if resolved_mask is not None:
-            out_updates = apply_mask_tree(new_updates, updates, resolved_mask)
+            out_updates = _unmask_tree_with_fallback(
+                new_updates, updates, resolved_mask
+            )
         else:
             out_updates = new_updates
         return out_updates, MaskedState(inner_state=new_inner_state)

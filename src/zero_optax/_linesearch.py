@@ -10,10 +10,12 @@ from typing import NamedTuple, Protocol, Union
 from typing_extensions import TypeGuard
 
 from zero_optax._tree import (
+    arange,
     asarray,
     reshape,
     tree_leaves,
     tree_zeros_like,
+    where,
 )
 from zero_optax._types import (
     ArrayLike,
@@ -113,7 +115,7 @@ class BacktrackingLinesearchInfo(NamedTuple):
         decrease_error: Final Armijo sufficient-decrease violation (`0.0` if satisfied).
     """
 
-    num_linesearch_steps: Union[int, Tensor]
+    num_linesearch_steps: Tensor
     decrease_error: Tensor
 
 
@@ -343,15 +345,19 @@ def _numerical_value_and_grad(
         flat_vals.extend(_flatten_tensor_floats(t))
         meta.append((t.shape, t.dtype.value))
 
-    def _rebuild_from_flat(vec: Sequence[float]) -> Params:
-        """Rebuild `Params` PyTree from flat float vector `vec`.
+    n_params = len(flat_vals)
+    flat_p_t = asarray(flat_vals)
+
+    def _rebuild_from_tensor(vec_t: Tensor) -> Params:
+        """Rebuild `Params` PyTree from 1D `Tensor` `vec_t`.
 
         Args:
-            vec: Flat sequence of parameter values.
+            vec_t: 1D `Tensor` of parameter values.
 
         Returns:
             Reconstructed `Params` PyTree.
         """
+        vec = _flatten_tensor_floats(vec_t)
         leaves_out: list[TensorLeaf] = []
         offset = 0
         for m in meta:
@@ -371,25 +377,27 @@ def _numerical_value_and_grad(
         tree_out, _ = _unflatten_like(params, leaves_out, 0)
         return tree_out
 
+    idx_vec = arange(n_params)
     grad_flat: list[float] = []
-    for idx in range(len(flat_vals)):
-        v_plus = list(flat_vals)
-        v_minus = list(flat_vals)
-        v_plus[idx] += eps
-        v_minus[idx] -= eps
+    for idx in range(n_params):
+        basis = where(idx_vec == idx, eps, 0.0)
         f_plus = float(
             asarray(
-                _call_value_fn(value_fn, _rebuild_from_flat(v_plus), fn_args, kw)
+                _call_value_fn(
+                    value_fn, _rebuild_from_tensor(flat_p_t + basis), fn_args, kw
+                )
             ).item()
         )
         f_minus = float(
             asarray(
-                _call_value_fn(value_fn, _rebuild_from_flat(v_minus), fn_args, kw)
+                _call_value_fn(
+                    value_fn, _rebuild_from_tensor(flat_p_t - basis), fn_args, kw
+                )
             ).item()
         )
         grad_flat.append((f_plus - f_minus) / (2.0 * eps))
 
-    return val_t, _rebuild_from_flat(grad_flat)
+    return val_t, _rebuild_from_tensor(asarray(grad_flat))
 
 
 def scale_by_backtracking_linesearch(
@@ -436,7 +444,7 @@ def scale_by_backtracking_linesearch(
             value=asarray(float("inf")),
             grad=grad_init,
             info=BacktrackingLinesearchInfo(
-                num_linesearch_steps=0,
+                num_linesearch_steps=asarray(0),
                 decrease_error=asarray(float("inf")),
             ),
         )
@@ -518,13 +526,48 @@ def scale_by_backtracking_linesearch(
             value=asarray(new_val),
             grad=new_grad,
             info=BacktrackingLinesearchInfo(
-                num_linesearch_steps=iter_num,
+                num_linesearch_steps=asarray(iter_num),
                 decrease_error=asarray(dec_err),
             ),
         )
         return scaled_updates, new_state
 
     return GradientTransformationExtraArgs(init_fn, update_fn)
+
+
+def _interpolate_zoom_step(
+    low: float,
+    high: float,
+    val_low: float,
+    val_high: float,
+    slope_low: float,
+) -> float:
+    """Compute safeguarded quadratic interpolation step in `[low, high]`.
+
+    Args:
+        low: Bracket endpoint with lower objective value.
+        high: Other bracket endpoint.
+        val_low: Objective value at `low`.
+        val_high: Objective value at `high`.
+        slope_low: Directional derivative at `low`.
+
+    Returns:
+        Safeguarded step size in `[min(low, high), max(low, high)]`.
+    """
+    diff = high - low
+    denom = 2.0 * (val_high - val_low - slope_low * diff)
+    lo_b = min(low, high)
+    hi_b = max(low, high)
+    width = hi_b - lo_b
+    cand = (
+        low - (slope_low * diff * diff) / denom
+        if abs(denom) > 1e-12
+        else 0.5 * (low + high)
+    )
+    margin = 0.1 * width
+    if lo_b + margin <= cand <= hi_b - margin:
+        return cand
+    return 0.5 * (low + high)
 
 
 def scale_by_zoom_linesearch(
@@ -556,7 +599,7 @@ def scale_by_zoom_linesearch(
     Returns:
         A `GradientTransformationExtraArgs` scaling updates by the zoom line-search step size.
     """
-    del approx_dec_rtol, stepsize_precision, verbose
+    del verbose
 
     def init_fn(params: Params) -> ScaleByZoomLinesearchState:
         """Initialize `ScaleByZoomLinesearchState`.
@@ -638,7 +681,10 @@ def scale_by_zoom_linesearch(
         dec_err = float("inf")
         curv_err = float("inf")
         low = 0.0
+        val_low = f0
+        slope_low = slope0
         high = float("inf")
+        val_high = f0
         steps = 0
 
         for step_idx in range(max(max_linesearch_steps, 1)):
@@ -651,7 +697,15 @@ def scale_by_zoom_linesearch(
             cand_slope = float(tree_vdot(updates, cand_grad).item())
 
             raw_dec = cand_val - (f0 + lr * slope_rtol * slope0)
-            dec_err = max(raw_dec, 0.0)
+            if approx_dec_rtol is not None:
+                approx_dec = max(
+                    cand_val - (f0 + approx_dec_rtol * abs(f0)),
+                    cand_slope - (2.0 * slope_rtol - 1.0) * slope0,
+                    0.0,
+                )
+                dec_err = min(max(raw_dec, 0.0), approx_dec)
+            else:
+                dec_err = max(raw_dec, 0.0)
             raw_curv = abs(cand_slope) - curv_rtol * abs(slope0)
             curv_err = max(raw_curv, 0.0)
 
@@ -661,17 +715,28 @@ def scale_by_zoom_linesearch(
 
             if dec_err <= tol and curv_err <= tol:
                 break
-            if dec_err > tol:
+            if not math.isinf(high) and abs(high - low) <= stepsize_precision:
+                break
+            if dec_err > tol or (step_idx > 0 and cand_val >= val_low):
                 high = lr
-                lr = 0.5 * (low + high)
+                val_high = cand_val
+                lr = _interpolate_zoom_step(low, high, val_low, val_high, slope_low)
             elif cand_slope < 0.0 and math.isinf(high):
                 low = lr
+                val_low = cand_val
+                slope_low = cand_slope
                 lr = lr * increase_factor
                 if max_learning_rate is not None:
                     lr = min(lr, max_learning_rate)
             else:
                 low = lr
-                lr = 0.5 * (low + high) if not math.isinf(high) else lr * 0.5
+                val_low = cand_val
+                slope_low = cand_slope
+                lr = (
+                    _interpolate_zoom_step(low, high, val_low, val_high, slope_low)
+                    if not math.isinf(high)
+                    else lr * 0.5
+                )
 
         scaled_updates = tree_scalar_mul(best_lr, updates)
         new_state = ScaleByZoomLinesearchState(

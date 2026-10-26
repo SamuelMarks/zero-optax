@@ -224,7 +224,8 @@ def test_tree_and_helper_branches() -> None:
 
     assert apply_mask_tree((1.0, 2.0), (3.0, 4.0), (True, False)) == (1.0, 4.0)
     assert apply_mask_tree([1.0, 2.0], [3.0, 4.0], [False, True]) == [3.0, 2.0]
-    assert apply_mask_tree(1.0, 2.0, {"unused": True}) == 1.0
+    with pytest.raises(ValueError, match="Mask tree container structure"):
+        apply_mask_tree(1.0, 2.0, {"unused": True})
 
     lse = logsumexp(asarray([[0.0, 0.0]]), axis=-1, keepdims=True)
     assert_allclose_optax(lse, np.array([[np.log(2.0)]]))
@@ -799,14 +800,16 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     assert out.shape == (1, 2)
 
     # 3. FrozenDict and zero_chex.dataclass support in tree_map, tree_leaves, and apply_mask_tree
-    fdict = FrozenDict({"w": asarray([1.0, 2.0]), "b": asarray([0.5])})
+    fdict = FrozenDict(
+        {"w": asarray([1.0, 2.0]), "b": FrozenDict({"sub": asarray([0.5])})}
+    )
     mapped_fdict = tree_map(lambda x: asarray(x) * 2.0, fdict)
     assert isinstance(mapped_fdict, FrozenDict)
     assert len(tree_leaves(fdict)) == 2
     masked_fdict = apply_mask_tree(
         mapped_fdict,
         fdict,
-        FrozenDict({"w": True, "b": (False, True)}),
+        FrozenDict({"w": True, "b": {"sub": False}}),
     )
     assert isinstance(masked_fdict, FrozenDict)
     assert _coerce_submask((True, False)) == (True, False)
@@ -910,7 +913,9 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     assert isinstance(opt_state_from_state_dict(param_leaf, param_leaf), nnx.Param)
     assert opt_state_to_state_dict(z_arr) is not None
     assert _to_chex_tree(z_arr) is not None
-    assert _to_raw_array_input(None) == 0.0
+    with pytest.raises(TypeError, match="Unsupported ArrayLike"):
+        _to_raw_array_input(None)
+    assert _resolve_dtype(int) == DType.int32
     assert _coerce_pytree_child([True, False]) == [True, False]
     assert _coerce_pytree_child("not_a_pytree") is None
     assert _unwrap_orbax_state_dict([1, 2]) == [1, 2]
@@ -1469,8 +1474,197 @@ def test_phase6_additional_optimizers() -> None:
         lbfgs_opt.update(g_next2, lb_st2, p_next2)
         lbfgs_opt.update(g_next, lb_st1, params)
     lbfgs_zero = zero_optax.scale_by_lbfgs(scale_init_precond=True)
-    lbfgs_zero.update(
+    u_lzero, st_lzero = lbfgs_zero.update(
         {"w": asarray([0.0, 0.0]), "m": asarray([[0.0, 0.0], [0.0, 0.0]]), "n": None},
         lbfgs_zero.init(params),
         params,
     )
+    assert_allclose_optax(get_tree_item(u_lzero, "w"), np.array([0.0, 0.0]))
+    assert int(st_lzero.count.item()) == 1
+
+    # Verify _make roundtrip on all _OptStateDataclassBase state classes
+    base_dc = zero_optax.base._OptStateDataclassBase._make(())
+    assert isinstance(base_dc, zero_optax.base._OptStateDataclassBase)
+    dc_states: list[zero_optax.base._OptStateDataclassBase] = [
+        zero_optax.add_noise(0.1, 0.5, seed=0).init(params),
+        zero_optax.ema(0.9).init(params),
+        zero_optax.scale_by_amsgrad().init(params),
+        zero_optax.scale_by_adamax().init(params),
+        zero_optax.scale_by_factored_rms(min_dim_size_to_factor=2).init(params),
+        zero_optax.scale_by_lbfgs().init(params),
+        zero_optax.scale_by_optimistic_gradient().init(params),
+        zero_optax.scale_by_rprop(0.1).init(params),
+        zero_optax.lookahead(sgd(0.1), 2, 0.5).init(params),
+        zero_optax.MultiSteps(sgd(0.1), 2).init(params),
+        InjectHyperparamsState(
+            count=asarray(0),
+            hyperparams={"learning_rate": 0.1},
+            inner_state=sgd(0.1).init(params),
+        ),
+        InjectStatefulHyperparamsState(
+            count=asarray(0),
+            hyperparams={"learning_rate": 0.1},
+            hyperparams_states={},
+            inner_state=sgd(0.1).init(params),
+        ),
+    ]
+    for dc_st in dc_states:
+        rebuilt_st = dc_st._make(list(dc_st._asdict().values()))
+        assert type(rebuilt_st) is type(dc_st)
+        sd_round = zero_optax.opt_state_to_state_dict(dc_st)
+        restored_dc = zero_optax.opt_state_from_state_dict(dc_st, sd_round)
+        assert type(restored_dc) is type(dc_st)
+
+    # Test ScaleByLBFGSState._make with non-empty memory
+    lbfgs_mem_st = zero_optax.ScaleByLBFGSState._make(
+        [
+            1,
+            params,
+            updates,
+            [params],
+            [updates],
+            [0.5, asarray(0.25)],
+        ]
+    )
+    assert len(lbfgs_mem_st.weights_memory) == 2
+
+    # Test GradientTransformationExtraArgs keyword construction (init=..., update=...)
+    def _kw_init(params: Params) -> EmptyState:
+        """Return EmptyState for keyword init test.
+
+        Args:
+            params: Parameters PyTree.
+
+        Returns:
+            EmptyState instance.
+        """
+        del params
+        return EmptyState()
+
+    def _kw_upd(
+        updates: Updates,
+        state: OptState,
+        params: Params | None = None,
+        **extra_args: zero_optax.base.ExtraArgValue,
+    ) -> tuple[Updates, EmptyState]:
+        """Return unchanged updates and EmptyState.
+
+        Args:
+            updates: Updates PyTree.
+            state: Optimizer state.
+            params: Optional parameters PyTree.
+            **extra_args: Extra keyword arguments.
+
+        Returns:
+            Tuple `(updates, EmptyState())`.
+        """
+        del state, params, extra_args
+        return updates, EmptyState()
+
+    kw_extra_tx: GradientTransformationExtraArgs[EmptyState] = (
+        GradientTransformationExtraArgs(init=_kw_init, update=_kw_upd)
+    )
+    u_kw, _ = kw_extra_tx.update(updates, kw_extra_tx.init(params), params)
+    assert_allclose_optax(get_tree_item(u_kw, "w"), np.array([0.2, -0.4]))
+
+    # Test adamw and lion with weight_decay=0.0 and params=None
+    aw_zero = adamw(0.1, weight_decay=0.0)
+    u_aw0, _ = aw_zero.update(updates, aw_zero.init(params), None)
+    assert get_tree_item(u_aw0, "w").shape == (2,)
+    lion_zero = lion(0.1, weight_decay=0.0)
+    u_ln0, _ = lion_zero.update(updates, lion_zero.init(params), None)
+    assert get_tree_item(u_ln0, "w").shape == (2,)
+
+    # Test masked with mask_compatible_extra_args=True, tuple trees, and VariableLeaf masks
+    m_compat = zero_optax.masked(
+        kw_extra_tx,
+        {"w": True, "m": False, "n": False},
+        mask_compatible_extra_args=True,
+    )
+    u_mc, _ = m_compat.update(
+        updates,
+        m_compat.init(params),
+        params,
+        extra_tree=updates,
+        non_matching=1.0,
+    )
+    assert_allclose_optax(get_tree_item(u_mc, "w"), np.array([0.2, -0.4]))
+
+    from zero_optax.wrappers import (
+        MaskedNode,
+        _mask_tree_with_sentinel,
+        _unmask_tree_with_fallback,
+    )
+
+    assert isinstance(
+        _mask_tree_with_sentinel(asarray([1.0]), nnx.Param(False)), MaskedNode
+    )
+    assert isinstance(
+        _mask_tree_with_sentinel((asarray([1.0]), asarray([2.0])), (True, False)),
+        tuple,
+    )
+    assert _mask_tree_with_sentinel(asarray([1.0]), (True,)) is not None
+    assert (
+        _unmask_tree_with_fallback(asarray([1.0]), asarray([2.0]), nnx.Param(False))
+        is not None
+    )
+    assert isinstance(
+        _unmask_tree_with_fallback(
+            (asarray([1.0]), MaskedNode()),
+            (asarray([3.0]), asarray([4.0])),
+            (True, False),
+        ),
+        tuple,
+    )
+    assert _unmask_tree_with_fallback(asarray([1.0]), asarray([2.0]), True) is not None
+    assert isinstance(
+        _unmask_tree_with_fallback(
+            {"w": asarray([1.0]), "extra": asarray([2.0])},
+            {"w": asarray([3.0]), "extra": asarray([4.0])},
+            {"w": True},
+        ),
+        dict,
+    )
+    with pytest.raises(ValueError, match="Mask tree container structure"):
+        _unmask_tree_with_fallback(asarray([1.0]), asarray([2.0]), (True,))
+
+    # Test 1D per_example_global_norm_clip
+    pe_1d, pe_cnt = zero_optax.per_example_global_norm_clip(
+        {"v": asarray([3.0, 0.5])}, l2_norm_clip=1.0
+    )
+    assert int(pe_cnt.item()) == 1
+    assert_allclose_optax(get_tree_item(pe_1d, "v"), np.array(1.5))
+
+    # Test scale_by_zoom_linesearch with approx_dec_rtol=None and large stepsize_precision
+    def _simple_q(p: Params) -> Tensor:
+        """Simple 1D quadratic objective.
+
+        Args:
+            p: Parameters dict.
+
+        Returns:
+            Scalar objective Tensor.
+        """
+        if not isinstance(p, dict):
+            return asarray(0.0)
+        w_t = asarray(p["w"])
+        return zero_optax._tree.reduce_sum(w_t * w_t)
+
+    zm_no_approx = zero_optax.scale_by_zoom_linesearch(
+        max_linesearch_steps=5,
+        approx_dec_rtol=None,
+        stepsize_precision=10.0,
+        slope_rtol=0.5,
+        curv_rtol=0.01,
+    )
+    p_q: dict[str, PyTree] = {"w": asarray([2.0, -2.0])}
+    g_q: dict[str, PyTree] = {"w": asarray([-4.0, 4.0])}
+    zm_no_approx.update(g_q, zm_no_approx.init(p_q), p_q, value_fn=_simple_q)
+
+    # Test SM3 on 0D and tuple PyTrees
+    sm3_tx = zero_optax.scale_by_sm3()
+    p_tup_0d: PyTree = (asarray(2.0), [asarray([1.0, -2.0])], None)
+    g_tup_0d: PyTree = (asarray(0.5), [asarray([0.2, -0.4])], None)
+    st_sm3_0d = sm3_tx.init(p_tup_0d)
+    u_sm3_0d, _ = sm3_tx.update(g_tup_0d, st_sm3_0d, p_tup_0d)
+    assert isinstance(u_sm3_0d, tuple)

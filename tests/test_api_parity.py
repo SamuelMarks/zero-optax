@@ -133,16 +133,23 @@ def test_api_parity_local_snapshot() -> None:
             )
 
     root_vars = dict(inspect.getmembers(zero_optax))
-    state_count = 0
-    for name in zero_optax.__all__:
-        if name.endswith("State") and name != "OptState" and name in root_vars:
-            cls_obj = root_vars[name]
-            assert inspect.isclass(cls_obj), f"{name} should be a class"
-            assert "_fields" in dict(inspect.getmembers(cls_obj)), (
-                f"{name} must define _fields"
-            )
-            state_count += 1
-    assert state_count >= 25
+    expected_states = {
+        name
+        for name in zero_optax.__all__
+        if name.endswith("State") and name != "OptState"
+    }
+    verified_states: set[str] = set()
+    for name in sorted(expected_states):
+        assert name in root_vars, f"Missing exported state class {name}"
+        cls_obj = root_vars[name]
+        assert inspect.isclass(cls_obj), f"{name} should be a class"
+        cls_members = dict(inspect.getmembers(cls_obj))
+        assert "_fields" in cls_members, f"{name} must define _fields"
+        assert "_asdict" in cls_members, f"{name} must define _asdict"
+        assert "_make" in cls_members, f"{name} must define _make"
+        verified_states.add(name)
+    assert verified_states == expected_states
+    assert len(verified_states) == 50
 
     if mismatches:
         pytest.fail("API Parity Mismatches found: " + "; ".join(mismatches))

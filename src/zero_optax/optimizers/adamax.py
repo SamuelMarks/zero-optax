@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from zero_optax._tree import (
     abs_tensor,
     asarray,
     maximum,
+    power,
     tree_map,
     tree_zeros_like,
+    where,
 )
 from zero_optax._types import (
     Params,
@@ -22,6 +25,7 @@ from zero_optax._types import (
 from zero_optax.base import (
     GradientTransformation,
     OptState,
+    _as_count_tensor,
     _OptStateDataclassBase,
 )
 from zero_optax.combine import chain
@@ -50,6 +54,23 @@ class ScaleByAdamaxState(_OptStateDataclassBase):
             Dictionary with `'count'`, `'mu'`, and `'nu'`.
         """
         return {"count": self.count, "mu": self.mu, "nu": self.nu}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByAdamaxState:
+        """Construct `ScaleByAdamaxState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu)`.
+
+        Returns:
+            Reconstructed `ScaleByAdamaxState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            mu=items[1],
+            nu=items[2],
+        )
 
 
 def scale_by_adamax(
@@ -107,9 +128,8 @@ def scale_by_adamax(
                 f"Expected ScaleByAdamaxState in scale_by_adamax, got {type(state)!r}."
             )
         count_inc = state.count + 1
-        t_int = int(count_inc.item())
-        bc1 = 1.0 - (b1**t_int)
-        safe_bc1 = bc1 if abs(bc1) > 1e-12 else 1.0
+        bc1 = 1.0 - power(asarray(b1, dtype="float32"), count_inc)
+        safe_bc1 = where(abs_tensor(bc1) > 1e-12, bc1, 1.0)
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update first moment `b1 * m + (1 - b1) * g`.

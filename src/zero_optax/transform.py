@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, NamedTuple
 
 from zero_optax._tree import (
+    abs_tensor,
     apply_mask_tree,
     asarray,
     evaluate_schedule,
@@ -15,8 +15,9 @@ from zero_optax._tree import (
     leaf_l2_norm,
     maximum,
     minimum,
+    power,
     reduce_mean,
-    reshape,
+    reduce_sum,
     resolve_mask,
     safe_norm,
     sigmoid,
@@ -54,7 +55,6 @@ from zero_optax.tree_utils._random import (
     _split_seed_to_keys,
     tree_random_like,
 )
-from zero_optax.tree_utils._tree_math import _flatten_tensor_floats
 
 
 class ScaleByRssState(NamedTuple):
@@ -1768,6 +1768,22 @@ class AddNoiseState(_OptStateDataclassBase):
         """
         return {"count": self.count, "rng_key": self.rng_key}
 
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> AddNoiseState:
+        """Construct `AddNoiseState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, rng_key)`.
+
+        Returns:
+            Reconstructed `AddNoiseState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            rng_key=_as_count_tensor(items[1]),
+        )
+
 
 @dataclass(frozen=True)
 class EmaState(_OptStateDataclassBase):
@@ -1789,6 +1805,19 @@ class EmaState(_OptStateDataclassBase):
             Dictionary with `'count'` and `'ema'`.
         """
         return {"count": self.count, "ema": self.ema}
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> EmaState:
+        """Construct `EmaState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, ema)`.
+
+        Returns:
+            Reconstructed `EmaState`.
+        """
+        items = list(iterable)
+        return cls(count=_as_count_tensor(items[0]), ema=items[1])
 
 
 @dataclass(frozen=True)
@@ -1820,6 +1849,24 @@ class ScaleByAmsgradState(_OptStateDataclassBase):
             "nu": self.nu,
             "nu_max": self.nu_max,
         }
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByAmsgradState:
+        """Construct `ScaleByAmsgradState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(count, mu, nu, nu_max)`.
+
+        Returns:
+            Reconstructed `ScaleByAmsgradState`.
+        """
+        items = list(iterable)
+        return cls(
+            count=_as_count_tensor(items[0]),
+            mu=items[1],
+            nu=items[2],
+            nu_max=items[3],
+        )
 
 
 class KeepParamsNonnegativeState(NamedTuple):
@@ -1884,8 +1931,8 @@ def zero_nans() -> GradientTransformation[ZeroNansState]:
             """
             if u is None:
                 return None
-            vals = _flatten_tensor_floats(asarray(u))
-            return asarray(any(math.isnan(v) for v in vals))
+            u_t = asarray(u)
+            return reduce_sum(u_t != u_t) > 0
 
         def _clean_nan(u: TensorLeaf) -> TensorLeaf:
             """Replace any `NaN` elements in `u` with `0.0`.
@@ -1899,13 +1946,7 @@ def zero_nans() -> GradientTransformation[ZeroNansState]:
             if u is None:
                 return None
             u_t = asarray(u)
-            vals = _flatten_tensor_floats(u_t)
-            if not any(math.isnan(v) for v in vals):
-                return u_t
-            cleaned = [0.0 if math.isnan(v) else v for v in vals]
-            if u_t.shape == ():
-                return asarray(cleaned[0], dtype=u_t.dtype)
-            return reshape(asarray(cleaned, dtype=u_t.dtype), u_t.shape)
+            return asarray(where(u_t != u_t, 0.0, u_t), dtype=u_t.dtype)
 
         return (
             tree_map(_clean_nan, updates),
@@ -2106,9 +2147,9 @@ def add_noise(
                 f"Expected AddNoiseState in add_noise, got {type(state)!r}."
             )
         count_inc = state.count + 1
-        t_val = float(count_inc.item())
-        variance = eta / (t_val**gamma)
-        std = math.sqrt(max(variance, 0.0))
+        t_f = asarray(count_inc, dtype="float32")
+        variance = eta / power(t_f, float(gamma))
+        std = sqrt(maximum(variance, 0.0))
         subkeys = _split_seed_to_keys(_extract_seed_int(state.rng_key), 2)
         next_key, sample_key = subkeys[0], subkeys[1]
         noise_tree = tree_random_like(sample_key, updates)
@@ -2187,7 +2228,6 @@ def ema(
         if not isinstance(state, EmaState):
             raise TypeError(f"Expected EmaState in ema, got {type(state)!r}.")
         count_inc = state.count + 1
-        t_int = int(count_inc.item())
 
         def _ema_step(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update EMA leaf `decay * m + (1 - decay) * g`.
@@ -2211,8 +2251,8 @@ def ema(
         new_ema = tree_map(_ema_step, state.ema, updates)
         if not debias:
             return new_ema, EmaState(count=count_inc, ema=new_ema)
-        denom = 1.0 - (decay**t_int)
-        safe_denom = denom if abs(denom) > 1e-12 else 1.0
+        denom = 1.0 - power(asarray(decay, dtype="float32"), count_inc)
+        safe_denom = where(abs_tensor(denom) > 1e-12, denom, 1.0)
 
         def _debias_leaf(m: TensorLeaf) -> TensorLeaf:
             """Divide EMA leaf by `1 - decay ** t`.
@@ -2297,11 +2337,18 @@ def scale_by_amsgrad(
                 f"Expected ScaleByAmsgradState in scale_by_amsgrad, got {type(state)!r}."
             )
         count_inc = state.count + 1
-        t_int = int(count_inc.item())
-        bc1 = (1.0 - (b1**t_int)) if bias_correction_mu else 1.0
-        bc2 = (1.0 - (b2**t_int)) if bias_correction_nu else 1.0
-        safe_bc1 = bc1 if abs(bc1) > 1e-12 else 1.0
-        safe_bc2 = bc2 if abs(bc2) > 1e-12 else 1.0
+        bc1 = (
+            1.0 - power(asarray(b1, dtype="float32"), count_inc)
+            if bias_correction_mu
+            else asarray(1.0)
+        )
+        bc2 = (
+            1.0 - power(asarray(b2, dtype="float32"), count_inc)
+            if bias_correction_nu
+            else asarray(1.0)
+        )
+        safe_bc1 = where(abs_tensor(bc1) > 1e-12, bc1, 1.0)
+        safe_bc2 = where(abs_tensor(bc2) > 1e-12, bc2, 1.0)
 
         def _update_mu(m: TensorLeaf, g: TensorLeaf) -> TensorLeaf:
             """Update first moment `b1 * m + (1 - b1) * g`.
