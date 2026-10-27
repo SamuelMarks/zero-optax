@@ -262,13 +262,16 @@ def _bcast_reduce_to_input(
         Shape-aligned gradient node ID.
     """
     inp_shape = _extract_node_shape(graph, inp_id)
-    return emit_ir_node(
-        graph,
-        "BroadcastReduce",
-        [adj_id, inp_id],
-        shape_metadata=inp_shape,
-        attributes={"target_id": inp_id},
+    node_id: str = str(
+        emit_ir_node(
+            graph,
+            "BroadcastReduce",
+            [adj_id, inp_id],
+            shape_metadata=inp_shape,
+            attributes={"target_id": inp_id},
+        )
     )
+    return node_id
 
 
 def _where_vjp_rule(
@@ -1468,7 +1471,8 @@ def _replace_variable_leaf(
     if isinstance(leaf, Variable) and isinstance(
         wrapped_val, (JaxArray, Tensor, int, float, bool, type(None))
     ):
-        return leaf.replace(wrapped_val)
+        replaced_leaf: VariableLeafProtocol = leaf.replace(wrapped_val)
+        return replaced_leaf
     cls_type = type(leaf)
     return cls_type(wrapped_val)
 

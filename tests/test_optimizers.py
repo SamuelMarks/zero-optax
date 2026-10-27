@@ -1845,22 +1845,7 @@ def test_phase5_end_to_end_flax_jax_chex_grain_orbax_and_lora_filter(
             zero_optax.softmax_cross_entropy(logits_with_bias, y_batch)
         )
 
-    @zero_chex.assert_max_traces(n=2)
-    def _traced_loss(
-        *args: JaxPyTree,
-        **kwargs: JaxPyTree,
-    ) -> JaxPyTree:
-        """Trace-counted wrapper around `_linear_ce_loss`.
-
-        Args:
-            *args: Positional arguments `(p_state, x_batch, y_batch)`.
-            **kwargs: Unused keyword arguments.
-
-        Returns:
-            Scalar loss `Tensor`.
-        """
-        return _linear_ce_loss(*args, **kwargs)
-
+    _traced_loss = zero_chex.assert_max_traces(_linear_ce_loss, n=2)
     jit_forward_loss = zero_jax.jit(_traced_loss)
 
     batch0 = next(grain_iter)
