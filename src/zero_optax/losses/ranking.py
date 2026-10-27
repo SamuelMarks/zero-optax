@@ -55,6 +55,7 @@ def ranking_softmax_loss(
     """
     l_arr = asarray(logits)
     t_arr = asarray(labels)
+    zero_chex.assert_type([l_arr], float)
     zero_chex.assert_equal_shape([l_arr, t_arr])
     zero_chex.assert_rank([l_arr, t_arr], [l_arr.ndim, l_arr.ndim])
 

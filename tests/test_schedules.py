@@ -400,3 +400,46 @@ def test_utils_error_branches() -> None:
         get_tree_item(asarray([1.0]), "w")
     with pytest.raises(TypeError, match="Expected Tensor"):
         get_tree_item({"w": None}, "w")
+
+
+def test_grain_schedule_helpers() -> None:
+    """Test `steps_per_epoch_from_grain` and `grain_warmup_cosine_decay_schedule` with `zero_grain` datasets."""
+    import zero_grain
+
+    from zero_optax.schedules import (
+        grain_warmup_cosine_decay_schedule,
+        steps_per_epoch_from_grain,
+    )
+
+    seq_sampler = zero_grain.SequentialSampler(num_records=20)
+    assert steps_per_epoch_from_grain(seq_sampler, batch_size=4) == 5
+    assert steps_per_epoch_from_grain([0, 1, 2, 3, 4, 5], batch_size=2) == 3
+
+    loader_with_batch = zero_grain.DataLoader(
+        data_source=list(range(20)),
+        sampler=seq_sampler,
+        operations=[
+            zero_grain.MapOperation(map_function=lambda x: x),
+            zero_grain.BatchOperation(batch_size=5),
+        ],
+    )
+    assert steps_per_epoch_from_grain(loader_with_batch) == 4
+
+    loader_empty_sampler = zero_grain.DataLoader(
+        data_source=list(range(12)),
+        sampler=zero_grain.Sampler(),
+        operations=[],
+    )
+    assert steps_per_epoch_from_grain(loader_empty_sampler, batch_size=3) == 4
+    assert steps_per_epoch_from_grain(loader_empty_sampler) == 12
+
+    sched = grain_warmup_cosine_decay_schedule(
+        loader_with_batch,
+        init_value=0.0,
+        peak_value=0.1,
+        warmup_epochs=1.0,
+        total_epochs=5.0,
+    )
+    assert math.isclose(float(asarray(sched(0)).item()), 0.0, abs_tol=1e-6)
+    assert math.isclose(float(asarray(sched(4)).item()), 0.1, rel_tol=1e-5)
+    assert float(asarray(sched(20)).item()) < 0.01

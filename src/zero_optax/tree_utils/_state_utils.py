@@ -13,6 +13,7 @@ from zero_optax._tree import (
     _coerce_pytree_child,
     _rebuild_mapping,
     _rebuild_sequence,
+    _replace_variable_leaf,
     asarray,
     reshape,
 )
@@ -23,6 +24,7 @@ from zero_optax._types import (
     Params,
     PyTree,
     Tensor,
+    VariableLeafProtocol,
 )
 from zero_optax.base import OptState
 
@@ -174,6 +176,14 @@ def _collect_all_with_path(
             matches.extend(_collect_all_with_path(v, key, dict_path))
         return matches
 
+    if isinstance(tree, VariableLeafProtocol):
+        var_cls_name = type(tree).__name__
+        if key == var_cls_name:
+            matches.append((prefix, tree))
+        inner_val = _coerce_pytree_child(tree.value)
+        matches.extend(_collect_all_with_path(inner_val, key, prefix))
+        return matches
+
     if isinstance(tree, (tuple, list)):
         for idx, elem in enumerate(tree):
             seq_path: KeyPath = (*prefix, SequenceKey(idx))
@@ -281,6 +291,12 @@ def _replace_in_tree(
             else:
                 m_out[k_str] = _replace_in_tree(v, child_path, filtering, replacements)
         return _rebuild_mapping(node, m_out)
+
+    if isinstance(node, VariableLeafProtocol):
+        var_cls = type(node).__name__
+        if var_cls in replacements and (filtering is None or filtering(path, node)):
+            return replacements[var_cls]
+        return node
 
     if isinstance(node, tuple):
         return tuple(
@@ -411,6 +427,16 @@ def _map_with_is_leaf(
             ]
             seq_items.append(_map_with_is_leaf(fn, elem, sub_rest_seq, is_leaf))
         return _rebuild_sequence(primary, seq_items)
+    if isinstance(primary, VariableLeafProtocol):
+        inner_p = _coerce_pytree_child(primary.value)
+        unwrapped_rest: list[PyTree] = [
+            _coerce_pytree_child(r.value) if isinstance(r, VariableLeafProtocol) else r
+            for r in rest
+        ]
+        mapped_inner = _map_with_is_leaf(fn, inner_p, unwrapped_rest, is_leaf)
+        if isinstance(mapped_inner, VariableLeafProtocol):
+            return mapped_inner
+        return _replace_variable_leaf(primary, mapped_inner)
     return _call_param_fn(fn, primary, rest)
 
 

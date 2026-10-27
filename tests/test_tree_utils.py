@@ -44,6 +44,27 @@ class _SampleChexDC(MappableDataclassMixin):
 
     x: Tensor
 
+    def __getitem__(self, key: str) -> PyTree:
+        """Retrieve field `key` as a `zero_optax` `PyTree`.
+
+        Args:
+            key: Field name (`'x'`).
+
+        Returns:
+            Field tensor value.
+        """
+        if key != "x":
+            raise KeyError(key)
+        return self.x
+
+    def __chex_field_values__(self) -> tuple[PyTree, ...]:
+        """Return field values tuple `(self.x,)`.
+
+        Returns:
+            Single-element tuple `(self.x,)`.
+        """
+        return (self.x,)
+
 
 def test_tree_math_arithmetic_and_clipping() -> None:
     """Test arithmetic, scaling, clipping, conj, real, and where operations."""
@@ -485,3 +506,66 @@ def test_tree_state_utils_get_set_and_map_params() -> None:
     mu_317 = zero_optax.tree_utils.tree_get(mapped_317, "mu")
     assert isinstance(mu_317, dict)
     assert_allclose_optax(get_tree_item(mu_317, "w317"), np.full((3, 1, 7), 5.0))
+
+    # Test Rngs, RngStream, and PRNGKey in tree_random_like and add_noise
+    import zero_jax
+    from zero_flax import nnx
+    from zero_jax.numpy import ndarray as JaxArray
+
+    rngs_obj = nnx.Rngs(123)
+    rng_stream = nnx.RngStream(456)
+    raw_prng_key = zero_jax.random.PRNGKey(789)
+    assert isinstance(raw_prng_key, JaxArray)
+    target_t: dict[str, PyTree] = {"w": asarray([1.0, 2.0])}
+    r_from_rngs = tree_utils.tree_random_like(rngs_obj, target_t)
+    r_from_stream = tree_utils.tree_random_like(rng_stream, target_t)
+    r_from_prng = tree_utils.tree_random_like(raw_prng_key, target_t)
+    assert get_tree_item(r_from_rngs, "w").shape == (2,)
+    assert get_tree_item(r_from_stream, "w").shape == (2,)
+    assert get_tree_item(r_from_prng, "w").shape == (2,)
+
+    an_rngs = zero_optax.add_noise(0.1, 0.5, key=nnx.Rngs(7))
+    st_an = an_rngs.init(target_t)
+    u_an, _ = an_rngs.update(target_t, st_an, target_t)
+    assert get_tree_item(u_an, "w").shape == (2,)
+
+    # Test tree_get, tree_get_all_with_path, tree_set, and tree_map_params with nnx.OptState, nnx.OptVariable, and nnx.State
+    wrapped_opt_tree = nnx.State(
+        {
+            "step": nnx.OptState(asarray(3)),
+            "keep": nnx.Param(asarray(7.0)),
+            "nested": nnx.OptVariable(asarray([0.01])),
+        }
+    )
+    opt_state_matches = tree_utils.tree_get_all_with_path(wrapped_opt_tree, "OptState")
+    assert len(opt_state_matches) == 1
+    assert tree_utils.tree_get(wrapped_opt_tree, "step") is not None
+
+    updated_opt_tree = tree_utils.tree_set(
+        wrapped_opt_tree,
+        OptState=nnx.OptState(asarray(10)),
+        nested=nnx.OptVariable(asarray([0.05])),
+    )
+    assert isinstance(updated_opt_tree, nnx.State)
+
+    w_jax = zero_jax.numpy.asarray([1.0, 2.0])
+    assert isinstance(w_jax, JaxArray)
+    param_state = nnx.State({"w": nnx.Param(w_jax)})
+    st_param = opt.init(param_state)
+    mapped_param_st = zero_optax.tree_map_params(
+        opt,
+        lambda v: asarray(v) * 3.0,
+        st_param,
+    )
+    assert mapped_param_st is not None
+    mapped_keep_var = zero_optax.tree_map_params(
+        opt,
+        lambda v: nnx.Param(asarray(asarray(v) * 2.0)),
+        st_param,
+    )
+    assert mapped_keep_var is not None
+
+    # Test tree_allclose on MappableDataclassProtocol
+    dc_a = _SampleChexDC(x=asarray([1.0, 2.0]))
+    dc_b = _SampleChexDC(x=asarray([1.0, 2.0]))
+    assert tree_utils.tree_allclose(dc_a, dc_b) is True

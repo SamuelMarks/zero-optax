@@ -9,6 +9,15 @@ from dataclasses import dataclass
 from typing import Protocol, Union, runtime_checkable
 
 from typing_extensions import ParamSpec, TypeGuard
+from zero_flax.nnx.filterlib import Filter
+from zero_grain import (
+    BatchOperation,
+    DataLoader,
+    IndexSampler,
+    Sampler,
+    SequentialSampler,
+)
+from zero_grain._types import ElementTree
 
 from zero_optax._tree import (
     _coerce_pytree_child,
@@ -947,7 +956,7 @@ def _resolve_hyperparams_and_states(
             next_st = val.update(cur_st) if prev_states is not None else cur_st
             next_states[name] = next_st
             resolved[name] = _format_hparam_value(raw_val, hyperparam_dtype)
-        elif callable(val):
+        elif callable(val) and not isinstance(val, (Filter, type)):
             raw_sched = val(count)
             if isinstance(raw_sched, (int, float, Tensor)):
                 resolved[name] = _format_hparam_value(raw_sched, hyperparam_dtype)
@@ -1225,7 +1234,90 @@ def inject_stateful_hyperparams(
     return wrapped_factory
 
 
+GrainDatasetOrSampler = Union[
+    DataLoader[ElementTree],
+    Sampler,
+    Sequence[int],
+]
+
+
+def steps_per_epoch_from_grain(
+    dataset_or_sampler: GrainDatasetOrSampler,
+    batch_size: int | None = None,
+) -> int:
+    """Compute `steps_per_epoch = len(sampler) // batch_size` from a `zero_grain` DataLoader or Sampler.
+
+    Args:
+        dataset_or_sampler: `zero_grain.DataLoader`, `zero_grain.Sampler`, or index sequence.
+        batch_size: Optional explicit batch size. When omitted and `dataset_or_sampler` is a
+            `DataLoader`, inspects `dataset_or_sampler.operations` for a `BatchOperation`.
+
+    Returns:
+        Positive integer number of optimization steps per epoch.
+    """
+    if isinstance(dataset_or_sampler, DataLoader):
+        resolved_batch = batch_size
+        if resolved_batch is None:
+            for op in dataset_or_sampler.operations:
+                if isinstance(op, BatchOperation):
+                    resolved_batch = op.batch_size
+                    break
+        eff_batch = max(1, resolved_batch if resolved_batch is not None else 1)
+        sampler_len = len(dataset_or_sampler.sampler)
+        if sampler_len == 0 and dataset_or_sampler.data_source is not None:
+            sampler_len = len(dataset_or_sampler.data_source)
+        return max(1, sampler_len // eff_batch)
+    eff_batch = max(1, batch_size if batch_size is not None else 1)
+    if isinstance(dataset_or_sampler, (IndexSampler, SequentialSampler)):
+        total_records = dataset_or_sampler.num_records
+    else:
+        total_records = len(dataset_or_sampler)
+    return max(1, total_records // eff_batch)
+
+
+def grain_warmup_cosine_decay_schedule(
+    dataset_or_sampler: GrainDatasetOrSampler,
+    *,
+    init_value: float,
+    peak_value: float,
+    warmup_epochs: float,
+    total_epochs: float,
+    batch_size: int | None = None,
+    end_value: float = 0.0,
+    exponent: float = 1.0,
+) -> Schedule:
+    """Configure a warmup + cosine decay schedule directly from a `zero_grain` DataLoader or Sampler.
+
+    Args:
+        dataset_or_sampler: `zero_grain.DataLoader`, `zero_grain.Sampler`, or index sequence.
+        init_value: Initial learning rate at step 0.
+        peak_value: Peak learning rate reached after `warmup_epochs`.
+        warmup_epochs: Number of warmup epochs (can be fractional).
+        total_epochs: Total number of training epochs (including warmup).
+        batch_size: Optional batch size override.
+        end_value: Final learning rate at the end of cosine decay.
+        exponent: Cosine decay curve exponent.
+
+    Returns:
+        Configured `Schedule` callable.
+    """
+    steps_per_epoch = steps_per_epoch_from_grain(
+        dataset_or_sampler, batch_size=batch_size
+    )
+    warmup_steps = max(0, round(warmup_epochs * steps_per_epoch))
+    decay_steps = max(1, round(total_epochs * steps_per_epoch))
+    return warmup_cosine_decay_schedule(
+        init_value=init_value,
+        peak_value=peak_value,
+        warmup_steps=warmup_steps,
+        decay_steps=decay_steps,
+        end_value=end_value,
+        exponent=exponent,
+    )
+
+
 __all__ = [
+    "GrainDatasetOrSampler",
     "InjectHyperparamsState",
     "InjectStatefulHyperparamsState",
     "StatefulScheduleProtocol",
@@ -1233,6 +1325,7 @@ __all__ = [
     "cosine_decay_schedule",
     "cosine_onecycle_schedule",
     "exponential_decay",
+    "grain_warmup_cosine_decay_schedule",
     "inject_hyperparams",
     "inject_stateful_hyperparams",
     "join_schedules",
@@ -1242,6 +1335,7 @@ __all__ = [
     "piecewise_interpolate_schedule",
     "polynomial_schedule",
     "sgdr_schedule",
+    "steps_per_epoch_from_grain",
     "warmup_constant_schedule",
     "warmup_cosine_decay_schedule",
     "warmup_exponential_decay_schedule",

@@ -28,7 +28,6 @@ from zero_optax._tree import (
     where,
 )
 from zero_optax._types import (
-    ArrayLike,
     DTypeLike,
     MaskOrFn,
     Params,
@@ -51,6 +50,7 @@ from zero_optax.base import (
     identity,
 )
 from zero_optax.tree_utils._random import (
+    RngKeyLike,
     _extract_seed_int,
     _split_seed_to_keys,
     tree_random_like,
@@ -174,6 +174,59 @@ class ScaleByLionState(_OptStateDataclassBase):
         """
         items = list(iterable)
         return cls(count=_as_count_tensor(items[0]), mu=items[1])
+
+
+@dataclass(frozen=True)
+class ScaleByAdanState(_OptStateDataclassBase):
+    """State holding first, second, difference moments, previous gradient, and step count for Adan.
+
+    Attributes:
+        m: First moment estimate PyTree.
+        v: Gradient difference moment estimate PyTree.
+        n: Second moment estimate PyTree.
+        g: Previous step gradient PyTree.
+        t: Step counter Tensor.
+    """
+
+    m: Updates
+    v: Updates
+    n: Updates
+    g: Updates
+    t: Tensor
+    _fields: tuple[str, ...] = ("m", "v", "n", "g", "t")
+
+    def _asdict(self) -> dict[str, PyTree]:
+        """Return state fields as an ordered dictionary.
+
+        Returns:
+            Dictionary with `'m'`, `'v'`, `'n'`, `'g'`, and `'t'`.
+        """
+        return {
+            "m": self.m,
+            "v": self.v,
+            "n": self.n,
+            "g": self.g,
+            "t": self.t,
+        }
+
+    @classmethod
+    def _make(cls, iterable: Sequence[PyTree]) -> ScaleByAdanState:
+        """Construct `ScaleByAdanState` from a sequence of field values.
+
+        Args:
+            iterable: Sequence containing `(m, v, n, g, t)`.
+
+        Returns:
+            Reconstructed `ScaleByAdanState`.
+        """
+        items = list(iterable)
+        return cls(
+            m=items[0],
+            v=items[1],
+            n=items[2],
+            g=items[3],
+            t=_as_count_tensor(items[4]),
+        )
 
 
 class ScaleByRmsState(NamedTuple):
@@ -2081,23 +2134,23 @@ def keep_params_nonnegative() -> GradientTransformation[KeepParamsNonnegativeSta
 def add_noise(
     eta: float,
     gamma: float,
-    key: ArrayLike | int | None = None,
+    key: RngKeyLike | None = None,
     *,
-    seed: int | None = None,
+    seed: RngKeyLike | None = None,
 ) -> GradientTransformation[AddNoiseState]:
     """Add annealed Gaussian noise `N(0, eta / (1 + t) ** gamma)` to updates.
 
     Args:
         eta: Base variance of the Gaussian noise.
         gamma: Decay exponent controlling noise annealing over steps `t`.
-        key: Optional PRNG key array or integer seed.
-        seed: Optional deprecated integer seed keyword argument (used if `key is None`).
+        key: Optional `zero_jax.random.PRNGKey`, `zero_flax.nnx.Rngs`, or integer seed.
+        seed: Optional deprecated seed or PRNG key keyword argument (used if `key is None`).
 
     Returns:
         A `GradientTransformation` adding annealed Gaussian noise.
 
     Raises:
-        ValueError: If both `key` and `seed` are None, or if both are provided.
+        ValueError: If both `key` and `seed` are provided.
     """
     if key is None and seed is None:
         init_seed = 0
@@ -2106,7 +2159,7 @@ def add_noise(
     elif key is not None:
         init_seed = _extract_seed_int(key)
     else:
-        init_seed = int(seed) if seed is not None else 0
+        init_seed = _extract_seed_int(seed) if seed is not None else 0
 
     def init_fn(params: Params) -> AddNoiseState:
         """Initialize `AddNoiseState` with `count = 0` and initial PRNG key.
@@ -2563,12 +2616,17 @@ def scale_by_param_block_rms(
     return GradientTransformation(init_fn, update_fn)
 
 
+ScaleByAddNoiseState = AddNoiseState
+
+
 __all__ = [
     "AddDecayedWeightsState",
     "AddNoiseState",
     "EmaState",
     "KeepParamsNonnegativeState",
     "ScaleByAdamState",
+    "ScaleByAdanState",
+    "ScaleByAddNoiseState",
     "ScaleByAmsgradState",
     "ScaleByBeliefState",
     "ScaleByLionState",

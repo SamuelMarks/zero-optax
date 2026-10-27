@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Generic, NamedTuple, Protocol, TypeVar, Union
 
 from typing_extensions import TypeGuard
+from zero_jax import tree_util as jax_tree_util
 from zero_orbax.checkpoint import Future as OrbaxFuture
 from zero_orbax.core import SerializedArray
 from zero_orbax.types import PyTree as OrbaxPyTree
@@ -23,6 +24,7 @@ from zero_optax._types import (
     ArrayLikeProtocol,
     CustomMappingPyTreeProtocol,
     MappableDataclassProtocol,
+    MaskedNode,
     OptStateProtocol,
     Params,
     PyTree,
@@ -36,11 +38,38 @@ from zero_optax._types import (
     VariableLeafProtocol,
 )
 
+_REGISTERED_OPT_STATE_CLASSES: list[type[_OptStateDataclassBase]] = []
+
+
+def register_opt_state_pytree(cls: type[_OptStateDataclassBase]) -> None:
+    """Register an `_OptStateDataclassBase` subclass with `zero_jax.tree_util.register_pytree_with_keys_class`.
+
+    Args:
+        cls: Concrete `_OptStateDataclassBase` class to register.
+    """
+    if cls not in _REGISTERED_OPT_STATE_CLASSES:
+        _REGISTERED_OPT_STATE_CLASSES.append(cls)
+    jax_tree_util.register_pytree_with_keys_class(cls)
+
 
 class _OptStateDataclassBase(Mapping[str, PyTree]):
     """Base class for dataclass-based `OptState` containers providing mapping and PyTree protocols."""
 
     _fields: tuple[str, ...] = ()
+
+    def __init_subclass__(cls) -> None:
+        """Automatically register every `_OptStateDataclassBase` subclass as a custom PyTree node."""
+        super().__init_subclass__()
+        register_opt_state_pytree(cls)
+
+    @property
+    def __orbax_state_type__(self) -> str:
+        """Return the canonical Orbax state type identifier for this optimizer state.
+
+        Returns:
+            Class name string of the concrete `OptState` type.
+        """
+        return type(self).__name__
 
     def _asdict(self) -> dict[str, PyTree]:
         """Return an ordered mapping from field names to their current state values.
@@ -49,6 +78,43 @@ class _OptStateDataclassBase(Mapping[str, PyTree]):
             Dictionary mapping field names to state values.
         """
         return {}
+
+    def tree_flatten_with_keys(
+        self,
+    ) -> tuple[list[tuple[jax_tree_util.GetAttrKey, PyTree]], tuple[str, ...]]:
+        """Flatten this optimizer state into `(GetAttrKey(field), value)` pairs and field names.
+
+        Returns:
+            Tuple of `(key_value_pairs, field_names_tuple)`.
+        """
+        return (
+            [
+                (jax_tree_util.GetAttrKey(k), v)
+                for k, v in zip(
+                    self.__chex_mappable_fields__(),
+                    self.__chex_field_values__(),
+                )
+            ],
+            self.__chex_mappable_fields__(),
+        )
+
+    @classmethod
+    def tree_unflatten(
+        cls,
+        aux_data: tuple[str, ...] | None,
+        children: Sequence[PyTree],
+    ) -> _OptStateDataclassBase:
+        """Reconstruct this optimizer state from `aux_data` and `children`.
+
+        Args:
+            aux_data: Field names tuple (unused by `_make`).
+            children: Reconstructed child values in field order.
+
+        Returns:
+            Reconstructed `_OptStateDataclassBase` instance.
+        """
+        del aux_data
+        return cls._make(list(children))
 
     def __chex_mappable_fields__(self) -> tuple[str, ...]:
         """Return the ordered tuple of field names for `zero_chex` PyTree traversal.
@@ -106,6 +172,9 @@ class _OptStateDataclassBase(Mapping[str, PyTree]):
         """
         del iterable
         return cls()
+
+
+register_opt_state_pytree(_OptStateDataclassBase)
 
 
 def _as_count_tensor(val: PyTree) -> Tensor:
@@ -543,16 +612,20 @@ def opt_state_to_state_dict(state: OptState) -> StateDictTree:
     Returns:
         Pure dictionary/tuple/array PyTree suitable for `zero-orbax` or `zero-flax` serialization.
     """
-    if isinstance(state, OptStateProtocol):
-        raw_map = state._asdict()
-        return {k: opt_state_to_state_dict(raw_map[k]) for k in state._fields}
-    if isinstance(state, MappableDataclassProtocol):
+    if isinstance(state, MaskedNode):
+        return {"__orbax_state_type__": state.__orbax_state_type__}
+    if isinstance(state, MappableDataclassProtocol) and not isinstance(
+        state, _OptStateDataclassBase
+    ):
         return {
             k: opt_state_to_state_dict(_coerce_pytree_child(v))
             for k, v in zip(
                 state.__chex_mappable_fields__(), state.__chex_field_values__()
             )
         }
+    if isinstance(state, OptStateProtocol):
+        raw_map = state._asdict()
+        return {k: opt_state_to_state_dict(raw_map[k]) for k in state._fields}
     if isinstance(state, (Mapping, CustomMappingPyTreeProtocol)):
         return {
             str(k): opt_state_to_state_dict(_coerce_pytree_child(state[k]))
@@ -583,6 +656,10 @@ def _unwrap_orbax_state_dict(
         Normalized `zero-optax` `PyTree`.
     """
     raw = state_dict.result() if isinstance(state_dict, OrbaxFuture) else state_dict
+    if isinstance(raw, MaskedNode):
+        return raw
+    if isinstance(raw, OptStateProtocol):
+        return raw._asdict()
     if isinstance(
         raw,
         (
@@ -599,6 +676,8 @@ def _unwrap_orbax_state_dict(
     ) and not isinstance(raw, dict):
         return raw
     if isinstance(raw, Mapping):
+        if raw.get("__orbax_state_type__") == "MaskedNode":
+            return MaskedNode()
         return {str(k): _unwrap_orbax_state_dict(v) for k, v in raw.items()}
     if isinstance(raw, tuple):
         return tuple(_unwrap_orbax_state_dict(item) for item in raw)
@@ -623,6 +702,8 @@ def opt_state_from_state_dict(
     Raises:
         TypeError: If `state_dict` container structure is incompatible with `template`.
     """
+    if isinstance(template, MaskedNode):
+        return MaskedNode()
     norm_dict = _unwrap_orbax_state_dict(state_dict)
     if isinstance(template, OptStateProtocol):
         template_map = template._asdict()
@@ -680,6 +761,12 @@ def opt_state_from_state_dict(
     return norm_dict
 
 
+def register_all_opt_states() -> None:
+    """Register `_OptStateDataclassBase` and all concrete `OptState` subclasses in `zero_jax` and `zero_chex`."""
+    for cls in list(_REGISTERED_OPT_STATE_CLASSES):
+        register_opt_state_pytree(cls)
+
+
 __all__ = [
     "Array",
     "EmptyState",
@@ -702,6 +789,8 @@ __all__ = [
     "identity",
     "opt_state_from_state_dict",
     "opt_state_to_state_dict",
+    "register_all_opt_states",
+    "register_opt_state_pytree",
     "set_to_zero",
     "stateless",
 ]

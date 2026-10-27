@@ -5,10 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from typing import NamedTuple, Union
 
+from typing_extensions import TypeGuard
+from zero_flax.nnx.filterlib import Filter, to_predicate
+from zero_flax.nnx.variables import VariableBase
+
 from zero_optax._tree import (
     _coerce_pytree_child,
+    evaluate_filter_mask_tree,
 )
 from zero_optax._types import (
+    CustomMappingPyTreeProtocol,
     MappableDataclassProtocol,
     MaskTree,
     Params,
@@ -176,9 +182,32 @@ def named_chain(
 LabelTree = Union[
     PyTree,
     str,
+    Filter,
+    type[VariableBase],
     Sequence["LabelTree"],
     Mapping[str, "LabelTree"],
+    Mapping[Hashable, Union[Filter, type[VariableBase], str]],
 ]
+PartitionLabelsArg = Union[
+    LabelTree,
+    Callable[[Params], LabelTree],
+]
+
+
+def _is_label_filter_spec(
+    obj: PartitionLabelsArg | Hashable,
+) -> TypeGuard[Filter | type[VariableBase]]:
+    """Check whether `obj` is a `zero_flax.nnx.Filter` instance or `VariableBase` subclass.
+
+    Args:
+        obj: Candidate label or filter specification.
+
+    Returns:
+        True if `obj` is a `Filter` or `VariableBase` subclass.
+    """
+    return isinstance(obj, Filter) or (
+        isinstance(obj, type) and issubclass(obj, VariableBase)
+    )
 
 
 def _build_label_mask(
@@ -205,7 +234,10 @@ def _build_label_mask(
             )
         }
     if isinstance(labels, Mapping):
-        return {str(k): _build_label_mask(labels[k], target_label) for k in labels}
+        return {
+            str(k): _build_label_mask(labels_v, target_label)
+            for k, labels_v in labels.items()
+        }
     if isinstance(labels, tuple):
         return tuple(_build_label_mask(item, target_label) for item in labels)
     if isinstance(labels, list):
@@ -213,25 +245,133 @@ def _build_label_mask(
     return bool(labels == target_label or str(labels) == str(target_label))
 
 
+def _resolve_filter_label_map_on_params(
+    filter_map: Mapping[Hashable, Filter | type[VariableBase]],
+    fallback_label: Hashable | None,
+    params: Params,
+    prefix: tuple[str, ...] = (),
+) -> MaskTree | LabelTree:
+    """Assign each leaf in `params` to the first matching `Filter` key in `filter_map`.
+
+    Args:
+        filter_map: Ordered mapping from partition label to `Filter` or `VariableBase` type.
+        fallback_label: Optional fallback label when no predicate matches a leaf.
+        params: Target parameters PyTree.
+        prefix: Current tuple of string path segments from the root.
+
+    Returns:
+        Resolved `LabelTree` matching the container structure of `params`.
+    """
+    if isinstance(params, MappableDataclassProtocol):
+        return {
+            fname: _resolve_filter_label_map_on_params(
+                filter_map,
+                fallback_label,
+                _coerce_pytree_child(fval),
+                (*prefix, fname),
+            )
+            for fname, fval in zip(
+                params.__chex_mappable_fields__(),
+                params.__chex_field_values__(),
+            )
+        }
+    if isinstance(params, (Mapping, CustomMappingPyTreeProtocol)):
+        return {
+            str(k): _resolve_filter_label_map_on_params(
+                filter_map,
+                fallback_label,
+                _coerce_pytree_child(params[k]),
+                (*prefix, str(k)),
+            )
+            for k in params
+        }
+    if isinstance(params, tuple):
+        return tuple(
+            _resolve_filter_label_map_on_params(
+                filter_map, fallback_label, item, (*prefix, str(idx))
+            )
+            for idx, item in enumerate(params)
+        )
+    if isinstance(params, list):
+        return [
+            _resolve_filter_label_map_on_params(
+                filter_map, fallback_label, item, (*prefix, str(idx))
+            )
+            for idx, item in enumerate(params)
+        ]
+    for label_key, f_spec in filter_map.items():
+        pred = to_predicate(f_spec)
+        matched = (
+            bool(pred(prefix, params))
+            if isinstance(params, VariableBase)
+            else bool(pred(prefix, None))
+        )
+        if matched:
+            return str(label_key)
+    return str(fallback_label) if fallback_label is not None else ""
+
+
+def _resolve_labels_for_params(
+    param_labels: PartitionLabelsArg,
+    params: Params,
+    transforms_keys: Sequence[Hashable],
+) -> LabelTree:
+    """Resolve `param_labels` (including `zero_flax.nnx.Filter` specs) against `params`.
+
+    Args:
+        param_labels: Label tree, `Filter` predicate, mapping of `{label: Filter}`,
+            or callable `param_labels(params) -> LabelTree`.
+        params: Target parameters PyTree.
+        transforms_keys: Ordered sequence of keys from `transforms`.
+
+    Returns:
+        Resolved `LabelTree` matching `params`.
+    """
+    if isinstance(param_labels, (Filter, type)):
+        return evaluate_filter_mask_tree(param_labels, params)
+    if isinstance(param_labels, Mapping):
+        filter_entries: dict[Hashable, Filter | type[VariableBase]] = {}
+        fallback_key: Hashable | None = None
+        for k, v in param_labels.items():
+            if _is_label_filter_spec(v):
+                filter_entries[k] = v
+        if filter_entries and set(param_labels.keys()) <= set(transforms_keys):
+            for tk in transforms_keys:
+                if tk not in filter_entries:
+                    fallback_key = tk
+                    break
+            return _resolve_filter_label_map_on_params(
+                filter_entries, fallback_key, params
+            )
+    if callable(param_labels):
+        resolved = param_labels(params)
+        if isinstance(resolved, (Filter, type)):
+            return evaluate_filter_mask_tree(resolved, params)
+        return resolved
+    return param_labels
+
+
 def partition(
     transforms: Mapping[
         Hashable,
         GradientTransformation[OptState] | GradientTransformationExtraArgs[OptState],
     ],
-    param_labels: LabelTree | Callable[[Params], LabelTree],
+    param_labels: PartitionLabelsArg,
     *,
     mask_compatible_extra_args: bool = False,
 ) -> GradientTransformationExtraArgs[PartitionState]:
-    """Partition parameters by label and apply the corresponding transformation from `transforms`.
+    """Partition parameters by label or `zero_flax.nnx.Filter` and apply `transforms`.
 
     Args:
         transforms: Mapping from partition labels to gradient transformations.
-        param_labels: Label prefix PyTree (or callable `param_labels(params) -> LabelTree`).
+        param_labels: Label prefix PyTree, `zero_flax.nnx.Filter` predicate,
+            mapping `{label: Filter}`, or callable `param_labels(params) -> LabelTree`.
         mask_compatible_extra_args: Whether to also mask PyTree extra arguments.
 
     Returns:
         A `GradientTransformationExtraArgs` applying each partition's transformation.
     """
+    transform_keys_list = list(transforms.keys())
 
     def _make_mask_for_group(group: Hashable) -> Callable[[Params], MaskTree]:
         """Create a mask callable selecting only parameters labeled with `group`.
@@ -252,8 +392,8 @@ def partition(
             Returns:
                 Boolean `MaskTree` for `group`.
             """
-            resolved_labels = (
-                param_labels(params) if callable(param_labels) else param_labels
+            resolved_labels = _resolve_labels_for_params(
+                param_labels, params, transform_keys_list
             )
             return _build_label_mask(resolved_labels, group)
 

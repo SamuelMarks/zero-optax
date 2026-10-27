@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from zero_optax.losses import _fenchel_young, contrastive
 from zero_optax.losses.classification import (
     convex_kl_divergence,
     hinge_loss,
@@ -32,6 +33,7 @@ from zero_optax.losses.regression import (
     huber_loss,
     l2_loss,
     log_cosh,
+    smooth_l1_loss,
     squared_error,
 )
 from zero_optax.losses.sequence import ctc_loss, ctc_loss_with_forward_probs
@@ -39,7 +41,9 @@ from zero_optax.losses.sparsemax import multiclass_sparsemax_loss, sparsemax_los
 
 __all__ = [
     "MaxFun",
+    "_fenchel_young",
     "binary_dice_loss",
+    "contrastive",
     "convex_kl_divergence",
     "cosine_distance",
     "cosine_similarity",
@@ -64,6 +68,7 @@ __all__ = [
     "safe_softmax_cross_entropy",
     "sigmoid_binary_cross_entropy",
     "sigmoid_focal_loss",
+    "smooth_l1_loss",
     "smooth_labels",
     "softmax_cross_entropy",
     "softmax_cross_entropy_with_integer_labels",

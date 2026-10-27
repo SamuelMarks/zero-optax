@@ -2,57 +2,21 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 import zero_chex
-from zero_chex.types import PyTree as ChexPyTree
 
 from zero_optax._tree import (
-    _coerce_pytree_child,
     asarray,
     tree_l2_norm,
     tree_map,
     where,
 )
 from zero_optax._types import (
-    CustomMappingPyTreeProtocol,
-    MappableDataclassProtocol,
     Params,
     PyTree,
     Tensor,
     TensorLeaf,
     Updates,
-    VariableLeafProtocol,
 )
-
-
-def _to_chex_tree(tree: PyTree) -> ChexPyTree:
-    """Normalize a `zero_optax` `PyTree` into a `zero_chex` `PyTree` for structural assertions.
-
-    Args:
-        tree: Input `zero_optax` `PyTree`.
-
-    Returns:
-        Equivalent `zero_chex` `PyTree`.
-    """
-    if isinstance(tree, MappableDataclassProtocol):
-        return {
-            k: _to_chex_tree(_coerce_pytree_child(v))
-            for k, v in zip(
-                tree.__chex_mappable_fields__(), tree.__chex_field_values__()
-            )
-        }
-    if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
-        return {str(k): _to_chex_tree(_coerce_pytree_child(tree[k])) for k in tree}
-    if isinstance(tree, tuple):
-        return tuple(_to_chex_tree(item) for item in tree)
-    if isinstance(tree, list):
-        return [_to_chex_tree(item) for item in tree]
-    if isinstance(tree, VariableLeafProtocol):
-        return asarray(tree.value)
-    if isinstance(tree, (Tensor, float, int, bool, type(None))):
-        return tree
-    return asarray(tree)
 
 
 def apply_updates(params: Params, updates: Updates) -> Params:
@@ -65,9 +29,7 @@ def apply_updates(params: Params, updates: Updates) -> Params:
     Returns:
         Updated parameters PyTree `params + updates`.
     """
-    zero_chex.assert_trees_all_equal_structs(
-        _to_chex_tree(params), _to_chex_tree(updates)
-    )
+    zero_chex.assert_trees_all_equal_structs(params, updates)
 
     def _add_leaf(p: TensorLeaf, u: TensorLeaf) -> TensorLeaf:
         """Add update leaf `u` to parameter leaf `p`.
@@ -103,9 +65,7 @@ def incremental_update(
     Returns:
         Interpolated parameter PyTree.
     """
-    zero_chex.assert_trees_all_equal_structs(
-        _to_chex_tree(new_tensors), _to_chex_tree(old_tensors)
-    )
+    zero_chex.assert_trees_all_equal_structs(new_tensors, old_tensors)
 
     def _interp_leaf(new_v: TensorLeaf, old_v: TensorLeaf) -> TensorLeaf:
         """Interpolate between `new_v` and `old_v`.
@@ -143,9 +103,7 @@ def periodic_update(
     Returns:
         `new_tensors` when `steps % update_period == 0`, otherwise `old_tensors`.
     """
-    zero_chex.assert_trees_all_equal_structs(
-        _to_chex_tree(new_tensors), _to_chex_tree(old_tensors)
-    )
+    zero_chex.assert_trees_all_equal_structs(new_tensors, old_tensors)
     should_update = (asarray(steps) % update_period) == 0
 
     def _select_leaf(new_v: TensorLeaf, old_v: TensorLeaf) -> TensorLeaf:

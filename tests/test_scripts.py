@@ -438,3 +438,8 @@ def test_lint_typing_and_docs_script(tmp_path: Path) -> None:
     )
     assert len(lint_typing_and_docs.check_pyproject_mypy_config(bad_toml)) == 1
     assert lint_typing_and_docs.main(["src"], pyproject_path=bad_toml) == 1
+
+    from scripts import check_docs, check_no_any
+
+    assert check_docs.main(["src/zero_optax"]) == 0
+    assert check_no_any.main(["src/zero_optax"]) == 0

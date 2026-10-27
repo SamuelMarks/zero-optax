@@ -8,16 +8,27 @@ from typing import NamedTuple, Protocol, Union, runtime_checkable
 from ml_switcheroo_compiler.core.dtype import DType
 from ml_switcheroo_compiler.core.tensor import Tensor
 from ml_switcheroo_ir import DType as IrDType
-from zero_chex.types import PyTree as ChexPyTree
 from zero_flax.core import FrozenEntry
+from zero_flax.nnx.filterlib import Filter, FilterLiteral
 from zero_flax.nnx.state import StateEntry
+from zero_flax.nnx.variables import VariableBase
 from zero_jax._types import ArrayLikeSpec as JaxArrayLikeSpec
+from zero_jax.numpy import ndarray as JaxArray
 from zero_orbax.core import SerializedArray
 from zero_orbax.types import PyTree as OrbaxPyTree
 
 
 class MaskedNode(NamedTuple):
     """Sentinel node replacing masked-out (`False`) leaves inside `masked` states."""
+
+    @property
+    def __orbax_state_type__(self) -> str:
+        """Return the canonical Orbax state type identifier for `MaskedNode`.
+
+        Returns:
+            Class name string `'MaskedNode'`.
+        """
+        return "MaskedNode"
 
 
 @runtime_checkable
@@ -99,7 +110,7 @@ class ToListArrayProtocol(ShapeDtypeProtocol, Protocol):
 class VariableLeafProtocol(Protocol):
     """Structural protocol for `zero_flax.nnx.Variable` leaves (`Param`, `BatchStat`, `LoRAParam`)."""
 
-    def __init__(self, value: Union[PyTree, ChexPyTree, None] = None) -> None:
+    def __init__(self, value: Union[PyTree, OrbaxPyTree, None] = None) -> None:
         """Initialize a variable leaf container with `value`.
 
         Args:
@@ -133,7 +144,13 @@ class VariableLeafProtocol(Protocol):
         ...
 
 
-CustomMappingChild = Union["PyTree", StateEntry, FrozenEntry, ChexPyTree]
+CustomMappingChild = Union[
+    "PyTree",
+    StateEntry,
+    FrozenEntry,
+    OrbaxPyTree,
+    Iterable["CustomMappingChild"],
+]
 
 
 @runtime_checkable
@@ -278,6 +295,7 @@ Array = Tensor
 Scalar = Union[int, float, bool]
 ArrayLike = Union[
     Tensor,
+    JaxArray,
     Scalar,
     ArrayLikeProtocol,
     ToListArrayProtocol,
@@ -298,6 +316,7 @@ DTypeLike = Union[
 
 TensorLeaf = Union[
     Tensor,
+    JaxArray,
     float,
     int,
     bool,
@@ -323,6 +342,7 @@ StateDictTree = Union[
     int,
     float,
     bool,
+    str,
     None,
     SerializedArray,
     tuple["StateDictTree", ...],
@@ -332,13 +352,19 @@ StateDictTree = Union[
 
 MaskTree = Union[
     bool,
+    Filter,
+    type[VariableBase],
     VariableLeafProtocol,
     tuple["MaskTree", ...],
     list["MaskTree"],
     Mapping[str, "MaskTree"],
     CustomMappingPyTreeProtocol,
 ]
-MaskOrFn = Union[MaskTree, Callable[[Params], MaskTree], None]
+MaskOrFn = Union[
+    MaskTree,
+    Callable[[Params], MaskTree],
+    None,
+]
 
 Schedule = Callable[[Union[int, Tensor]], Union[float, Tensor]]
 ScalarOrSchedule = Union[float, int, Tensor, Schedule]
@@ -354,6 +380,9 @@ __all__ = [
     "DType",
     "DTypeLike",
     "DTypeLikeProtocol",
+    "Filter",
+    "FilterLiteral",
+    "JaxArray",
     "MappableDataclassProtocol",
     "MaskOrFn",
     "MaskTree",
@@ -372,5 +401,6 @@ __all__ = [
     "TensorLeaf",
     "ToListArrayProtocol",
     "Updates",
+    "VariableBase",
     "VariableLeafProtocol",
 ]

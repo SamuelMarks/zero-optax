@@ -945,3 +945,253 @@ def test_losses_chex_validation_and_zero_jax_inputs() -> None:
         multiclass_hinge_loss(asarray([[1.0, 2.0]]), asarray([[0]]))
     with pytest.raises(AssertionError):
         ranking_softmax_loss(asarray([1.0, 2.0]), asarray([1.0, 2.0, 3.0]))
+
+
+def test_losses_zero_jax_grad_and_jit_differentiability() -> None:
+    """Verify all 17 loss functions and elementary `_tree.py` math differentiate under `zero_jax.grad` and `@zero_jax.jit`."""
+    import math
+    from collections.abc import Callable
+
+    import zero_jax
+    import zero_jax.numpy as jnp_zero
+    from zero_jax._types import PyTree as JaxPyTree
+    from zero_jax._types import VariadicCallable
+    from zero_jax.numpy import ndarray as JaxArray
+
+    from zero_optax._tree import (
+        abs_val,
+        clip,
+        concatenate,
+        cos,
+        exp,
+        floor,
+        log,
+        log1p,
+        log_softmax,
+        maximum,
+        mean_axis,
+        minimum,
+        power,
+        reduce_max,
+        reduce_mean,
+        reduce_min,
+        reduce_sum,
+        reshape,
+        sign,
+        sin,
+        sqrt,
+        squeeze,
+        stack,
+        sum_to_Float,
+        where,
+        zeros,
+    )
+    from zero_optax._types import ArrayLike
+    from zero_optax.losses import smooth_l1_loss
+
+    def _jnp(val: ArrayLike) -> JaxArray:
+        """Convert `val` into a narrowed `zero_jax.numpy.ndarray`.
+
+        Args:
+            val: Input array-like value.
+
+        Returns:
+            Converted `JaxArray`.
+        """
+        arr = jnp_zero.asarray(asarray(val))
+        assert isinstance(arr, JaxArray)
+        return arr
+
+    # Test smooth_l1_loss with targets=None and explicit targets
+    sl1_none = smooth_l1_loss(asarray([-2.0, 0.5, 2.0]), alpha=1.0)
+    assert_allclose_optax(sl1_none, np.array([1.5, 0.125, 1.5]))
+    sl1_targ = smooth_l1_loss(asarray([1.0, 2.0]), asarray([0.5, 0.0]), alpha=1.0)
+    assert_allclose_optax(sl1_targ, np.array([0.125, 1.5]))
+
+    # Test ctc_loss_with_forward_probs when max_label_len == 0 (_concat_head_and_tail total_cols <= 1)
+    ctc_empty_lbl_loss, _, _ = ctc_loss_with_forward_probs(
+        asarray([[[0.2, 0.8]]]),
+        asarray([[0.0]]),
+        zeros((1, 0), dtype=int),
+        zeros((1, 0)),
+    )
+    assert ctc_empty_lbl_loss.shape == (1,)
+
+    # Test elementary _tree.py math on JaxArray directly and under zero_jax.grad
+    jx = _jnp([0.5, 1.5])
+    assert abs_val(jx).shape == (2,)
+    assert exp(jx).shape == (2,)
+    assert log(jx).shape == (2,)
+    assert log1p(jx).shape == (2,)
+    assert sqrt(jx).shape == (2,)
+    assert sign(jx).shape == (2,)
+    assert cos(jx).shape == (2,)
+    assert sin(jx).shape == (2,)
+    assert floor(jx).shape == (2,)
+    assert clip(jx, a_min=0.6, a_max=1.2).shape == (2,)
+    assert clip(jx).shape == (2,)
+    assert sum_to_Float(jx).shape == ()
+    assert mean_axis(jx).shape == ()
+    assert asarray(jx, dtype="int32").shape == (2,)
+    assert asarray([jx, jx]).shape == (2, 2)
+    assert sin(asarray([0.5, 1.0])).shape == (2,)
+    assert concatenate([asarray([1.0]), asarray([2.0])], axis=0).shape == (2,)
+
+    class _PureToList:
+        """Minimal `ToListArrayProtocol` implementation without `.tolist()`."""
+
+        @property
+        def shape(self) -> tuple[int, ...]:
+            """Return shape `(2,)`.
+
+            Returns:
+                Shape tuple `(2,)`.
+            """
+            return (2,)
+
+        @property
+        def dtype(self) -> str:
+            """Return `'float32'`.
+
+            Returns:
+                String `'float32'`.
+            """
+            return "float32"
+
+        def to_list(self) -> list[float | complex]:
+            """Return flat list with a complex and float element.
+
+            Returns:
+                List `[1.0, 2.0 + 0.0j]`.
+            """
+            return [1.0, complex(2.0, 0.0)]
+
+    assert asarray(_PureToList()).shape == (2,)
+
+    def _composite_math_loss(*args: JaxPyTree, **kwargs: JaxPyTree) -> JaxPyTree:
+        """Exercise VJP rules for mean, min, minimum, maximum, power, squeeze, and non-diff ops.
+
+        Args:
+            *args: Positional arguments `(v,)`.
+            **kwargs: Unused keyword arguments.
+
+        Returns:
+            Scalar objective `Tensor`.
+        """
+        del kwargs
+        v = args[0]
+        assert isinstance(v, (JaxArray, Tensor))
+        m_all = reduce_mean(v)
+        m_tup = reduce_sum(v, axis=(0, 1), keepdims=False)
+        m_ax = reduce_mean(v, axis=-1, keepdims=False)
+        min_ax = reduce_min(v, axis=-1, keepdims=False)
+        max_ax = reduce_max(v, axis=-1, keepdims=False)
+        clamped = clip(v, 0.1, 2.5)
+        pow_const = power(clamped, 2.0)
+        pow_var = power(clamped, clamped)
+        sq = squeeze(reshape(v, (2, 1, 3)), axis=1)
+        casted = asarray(v, dtype="float32")
+        st_neg = reduce_sum(stack([v, v], axis=-1), axis=-1)
+        cond_Part = where(
+            asarray(v) > 0.0,
+            pow_const + pow_var + sq + casted + st_neg,
+            minimum(v, maximum(v, 0.0)),
+        )
+        non_diff = sign(v) + floor(v)
+        return (
+            m_all
+            + m_tup
+            + reduce_sum(m_ax + min_ax + max_ax)
+            + reduce_sum(cond_Part + non_diff)
+        )
+
+    logits = _jnp([[1.0, 2.0, 3.0], [0.5, 1.5, 2.5]])
+    labels = _jnp([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    int_labels = _jnp([0, 1])
+    bin_targets = _jnp([[1.0, -1.0, 1.0], [-1.0, 1.0, -1.0]])
+    log_p = _jnp(log_softmax(logits, axis=-1))
+    emb = _jnp([[1.0, 0.2, 0.3], [0.5, 0.8, 0.2], [0.2, 0.3, 0.9], [0.1, 0.9, 0.4]])
+    emb_labels = _jnp([0, 0, 1, 1])
+
+    ctc_logits = _jnp([[[0.1, 0.6, 0.3], [0.2, 0.3, 0.5], [0.7, 0.2, 0.1]]])
+    ctc_logit_pad = _jnp([[0.0, 0.0, 0.0]])
+    ctc_labels = _jnp([[1, 2]])
+    ctc_label_pad = _jnp([[0.0, 0.0]])
+
+    grad_comp = zero_jax.grad(_composite_math_loss)(logits)
+    assert isinstance(grad_comp, JaxArray)
+    assert grad_comp.shape == (2, 3)
+
+    loss_cases: list[tuple[Callable[[JaxArray], Tensor], JaxArray]] = [
+        (lambda x: reduce_sum(softmax_cross_entropy(x, labels)), logits),
+        (
+            lambda x: reduce_sum(
+                softmax_cross_entropy_with_integer_labels(x, int_labels)
+            ),
+            logits,
+        ),
+        (lambda x: reduce_sum(sigmoid_binary_cross_entropy(x, labels)), logits),
+        (lambda x: reduce_sum(hinge_loss(x, bin_targets)), logits),
+        (lambda x: reduce_sum(multiclass_hinge_loss(x, int_labels)), logits),
+        (lambda x: reduce_sum(kl_divergence(x, labels)), log_p),
+        (lambda x: reduce_sum(convex_kl_divergence(x, labels)), log_p),
+        (
+            lambda x: reduce_sum(ctc_loss(x, ctc_logit_pad, ctc_labels, ctc_label_pad)),
+            ctc_logits,
+        ),
+        (lambda x: reduce_sum(l2_loss(x, labels)), logits),
+        (lambda x: reduce_sum(squared_error(x, labels)), logits),
+        (lambda x: reduce_sum(huber_loss(x, labels)), logits),
+        (lambda x: reduce_sum(smooth_l1_loss(x, labels)), logits),
+        (lambda x: reduce_sum(log_cosh(x, labels)), logits),
+        (lambda x: reduce_sum(cosine_similarity(x, labels)), logits),
+        (lambda x: reduce_sum(cosine_distance(x, labels)), logits),
+        (lambda x: reduce_sum(ranking_softmax_loss(x, labels)), logits),
+        (lambda x: reduce_sum(ntxent(x, emb_labels, temperature=0.5)), emb),
+    ]
+
+    def _make_wrapped_loss(
+        fn: Callable[[JaxArray], Tensor],
+    ) -> VariadicCallable[JaxPyTree]:
+        """Build a `VariadicCallable[JaxPyTree]` wrapper around `fn`.
+
+        Args:
+            fn: Loss callable taking a single `JaxArray`.
+
+        Returns:
+            Wrapped callable compatible with `zero_jax.value_and_grad` and `zero_jax.jit`.
+        """
+
+        def _wrapped_loss(*args: JaxPyTree, **kwargs: JaxPyTree) -> JaxPyTree:
+            """Evaluate `fn` on `args[0]`.
+
+            Args:
+                *args: Single positional input `JaxArray`.
+                **kwargs: Unused keyword arguments.
+
+            Returns:
+                Scalar loss `Tensor`.
+            """
+            del kwargs
+            inp = args[0]
+            assert isinstance(inp, JaxArray)
+            res: Tensor = fn(inp)
+            return res
+
+        return _wrapped_loss
+
+    for loss_fn, x_in in loss_cases:
+        wrapped_fn = _make_wrapped_loss(loss_fn)
+        val, g = zero_jax.value_and_grad(wrapped_fn)(x_in)
+        assert isinstance(val, (Tensor, JaxArray))
+        assert isinstance(g, JaxArray)
+        assert g.shape == x_in.shape
+        g_t = asarray(g)
+        assert float(reduce_sum(g_t * g_t).item()) > 0.0
+        jit_val = zero_jax.jit(wrapped_fn)(x_in)
+        assert isinstance(jit_val, (Tensor, JaxArray))
+        assert math.isclose(
+            float(asarray(val).item()),
+            float(asarray(jit_val).item()),
+            rel_tol=1e-5,
+        )

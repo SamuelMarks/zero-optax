@@ -106,7 +106,6 @@ from zero_optax.transform import (
     trace,
 )
 from zero_optax.update import (
-    _to_chex_tree,
     apply_updates,
     global_norm,
     incremental_update,
@@ -717,6 +716,29 @@ class _ChexParamNode(MappableDataclassMixin):
     w: Tensor
     b: Tensor
 
+    def __getitem__(self, key: str) -> PyTree:
+        """Retrieve field `key` as a `zero_optax` `PyTree`.
+
+        Args:
+            key: Field name (`'w'` or `'b'`).
+
+        Returns:
+            Field tensor value.
+        """
+        if key == "w":
+            return self.w
+        if key == "b":
+            return self.b
+        raise KeyError(key)
+
+    def __chex_field_values__(self) -> tuple[PyTree, ...]:
+        """Return field values tuple `(self.w, self.b)`.
+
+        Returns:
+            Tuple `(self.w, self.b)`.
+        """
+        return (self.w, self.b)
+
 
 def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     """Test `zero_optax` directly on `zero-flax` models, `zero-chex` trees, `zero-jax` arrays, and `zero-orbax` checkpoints.
@@ -782,12 +804,8 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
         # Round-trip state dictionary serialization for every optimizer state
         s_dict = opt_state_to_state_dict(next_opt_state)
         restored_st = opt_state_from_state_dict(opt_state, s_dict)
-        zero_chex.assert_trees_all_equal_structs(
-            _to_chex_tree(next_opt_state), _to_chex_tree(restored_st)
-        )
-        zero_chex.assert_trees_all_close(
-            _to_chex_tree(next_opt_state), _to_chex_tree(restored_st)
-        )
+        zero_chex.assert_trees_all_equal_structs(next_opt_state, restored_st)
+        zero_chex.assert_trees_all_close(next_opt_state, restored_st)
 
     # Update the nnx.Module with updated State and run a forward pass
     adamw_tx = adamw(1e-2)
@@ -823,7 +841,6 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     dc_sum = tree_map(lambda a, b: asarray(a) + asarray(b), dc1, dc2)
     assert isinstance(dc_sum, _ChexParamNode)
     assert len(tree_leaves(dc_sum)) == 2
-    assert _to_chex_tree(dc_sum) is not None
     assert opt_state_to_state_dict(dc_sum) is not None
     with pytest.raises(ValueError, match="expected MappableDataclass"):
         tree_map(lambda a, b: a, dc1, {"w": asarray([1.0, 2.0]), "b": asarray([3.0])})
@@ -842,12 +859,8 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     checkpointer.save(ckpt_dir, opt_state_to_state_dict(c_state1))
     raw_restored = checkpointer.restore(ckpt_dir)
     c_state1_restored = opt_state_from_state_dict(c_state0, raw_restored)
-    zero_chex.assert_trees_all_equal_structs(
-        _to_chex_tree(c_state1), _to_chex_tree(c_state1_restored)
-    )
-    zero_chex.assert_trees_all_close(
-        _to_chex_tree(c_state1), _to_chex_tree(c_state1_restored)
-    )
+    zero_chex.assert_trees_all_equal_structs(c_state1, c_state1_restored)
+    zero_chex.assert_trees_all_close(c_state1, c_state1_restored)
 
     u_expected, c_state2_expected = chained_tx.update(
         grads_state, c_state1, params_state
@@ -855,12 +868,8 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     u_restored, c_state2_restored = chained_tx.update(
         grads_state, c_state1_restored, params_state
     )
-    zero_chex.assert_trees_all_close(
-        _to_chex_tree(u_expected), _to_chex_tree(u_restored)
-    )
-    zero_chex.assert_trees_all_close(
-        _to_chex_tree(c_state2_expected), _to_chex_tree(c_state2_restored)
-    )
+    zero_chex.assert_trees_all_close(u_expected, u_restored)
+    zero_chex.assert_trees_all_close(c_state2_expected, c_state2_restored)
 
     # 5. Test _OptStateDataclassBase, InjectHyperparamsState, InjectStatefulHyperparamsState, and edge cases
     base_inst = _OptStateDataclassBase()
@@ -905,14 +914,85 @@ def test_ecosystem_integration_flax_chex_orbax_jax(tmp_path: Path) -> None:
     list_state: OptState = [ScaleByScheduleState(count=asarray(1))]
     list_dict = opt_state_to_state_dict(list_state)
     assert isinstance(opt_state_from_state_dict(list_state, list_dict), list)
-    assert _to_chex_tree(list_state) is not None
+    zero_chex.assert_trees_all_equal_structs(list_state, list_state)
     assert isinstance(
         opt_state_from_state_dict(sched_st, (asarray(2),)), ScaleByScheduleState
     )
     assert isinstance(opt_state_from_state_dict(fdict, fdict), FrozenDict)
     assert isinstance(opt_state_from_state_dict(param_leaf, param_leaf), nnx.Param)
     assert opt_state_to_state_dict(z_arr) is not None
-    assert _to_chex_tree(z_arr) is not None
+    assert zero_optax.MaskedNode().__orbax_state_type__ == "MaskedNode"
+    assert sched_st.__orbax_state_type__ == "ScaleByScheduleState"
+    mn_dict = opt_state_to_state_dict(zero_optax.MaskedNode())
+    assert mn_dict == {"__orbax_state_type__": "MaskedNode"}
+    assert isinstance(
+        opt_state_from_state_dict(zero_optax.MaskedNode(), mn_dict),
+        zero_optax.MaskedNode,
+    )
+    assert isinstance(
+        _unwrap_orbax_state_dict(zero_optax.MaskedNode()),
+        zero_optax.MaskedNode,
+    )
+    assert isinstance(_unwrap_orbax_state_dict(mn_dict), zero_optax.MaskedNode)
+    assert isinstance(_unwrap_orbax_state_dict(sched_st), dict)
+    adan_st = zero_optax.ScaleByAdanState(
+        m=asarray(1.0),
+        v=asarray(2.0),
+        n=asarray(3.0),
+        g=asarray(4.0),
+        t=asarray(5),
+    )
+    assert adan_st._asdict()["t"] is not None
+    assert isinstance(
+        zero_optax.ScaleByAdanState._make([1.0, 2.0, 3.0, 4.0, 5]),
+        zero_optax.ScaleByAdanState,
+    )
+    assert isinstance(
+        ScaleByScheduleState.tree_unflatten(None, [asarray(3)]),
+        ScaleByScheduleState,
+    )
+
+    class _CustomVarLeaf:
+        """Minimal `VariableLeafProtocol` test implementation outside `nnx.Variable`."""
+
+        def __init__(self, value: PyTree | None = None) -> None:
+            """Initialize `_CustomVarLeaf` with `value`.
+
+            Args:
+                value: Stored leaf value.
+            """
+            self._v: Tensor = asarray(0.0) if value is None else asarray(1.0)
+
+        @property
+        def value(self) -> Tensor:
+            """Return stored value.
+
+            Returns:
+                Stored `Tensor` value.
+            """
+            return self._v
+
+        def copy(self) -> _CustomVarLeaf:
+            """Return copy of `_CustomVarLeaf`.
+
+            Returns:
+                Copied `_CustomVarLeaf`.
+            """
+            return _CustomVarLeaf(self._v)
+
+        def replace(self) -> _CustomVarLeaf:
+            """Return replaced `_CustomVarLeaf`.
+
+            Returns:
+                New `_CustomVarLeaf`.
+            """
+            return _CustomVarLeaf(self._v)
+
+    assert isinstance(
+        tree_map(lambda x: asarray(x) + 1.0, _CustomVarLeaf(asarray(1.0))),
+        _CustomVarLeaf,
+    )
+    assert zero_optax.ScaleByAddNoiseState is zero_optax.AddNoiseState
     with pytest.raises(TypeError, match="Unsupported ArrayLike"):
         _to_raw_array_input(None)
     assert _resolve_dtype(int) == DType.int32
@@ -1668,3 +1748,305 @@ def test_phase6_additional_optimizers() -> None:
     st_sm3_0d = sm3_tx.init(p_tup_0d)
     u_sm3_0d, _ = sm3_tx.update(g_tup_0d, st_sm3_0d, p_tup_0d)
     assert isinstance(u_sm3_0d, tuple)
+
+
+def test_phase5_end_to_end_flax_jax_chex_grain_orbax_and_lora_filter(
+    tmp_path: Path,
+) -> None:
+    """End-to-end integration test of `zero_flax`, `zero_jax`, `zero_chex`, `zero_grain`, `zero_orbax`, and `LoRAParam` filters.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+    """
+    from collections.abc import Hashable, Mapping
+
+    import zero_grain
+    import zero_jax
+    from zero_flax.nnx.filterlib import Filter
+    from zero_flax.nnx.variables import VariableBase
+    from zero_grain._types import ElementTree
+    from zero_jax._types import PyTree as JaxPyTree
+    from zero_jax.numpy import ndarray as JaxArray
+    from zero_orbax.checkpoint import StandardCheckpointer
+
+    from zero_optax._types import StateDictTree
+
+    # 1. End-to-end nnx.Linear + softmax_cross_entropy + value_and_grad + @jit + adamw + zero_chex + zero_orbax + zero_grain
+    records: list[ElementTree] = [
+        {
+            "x": ensure_array([1.0, 0.5, -0.5, 0.2]),
+            "y": ensure_array([1.0, 0.0]),
+        },
+        {
+            "x": ensure_array([-0.5, 1.0, 0.3, -0.2]),
+            "y": ensure_array([0.0, 1.0]),
+        },
+        {
+            "x": ensure_array([0.8, -0.2, -0.4, 0.5]),
+            "y": ensure_array([1.0, 0.0]),
+        },
+        {
+            "x": ensure_array([-0.3, 0.9, 0.5, -0.4]),
+            "y": ensure_array([0.0, 1.0]),
+        },
+    ]
+    sampler = zero_grain.SequentialSampler(num_records=len(records))
+    loader = zero_grain.DataLoader(
+        data_source=records,
+        sampler=sampler,
+        operations=[zero_grain.BatchOperation(batch_size=2)],
+    )
+    grain_iter = iter(loader)
+
+    sched = zero_optax.grain_warmup_cosine_decay_schedule(
+        loader,
+        init_value=1e-4,
+        peak_value=1e-2,
+        warmup_epochs=1.0,
+        total_epochs=4.0,
+    )
+    tx = adamw(sched)
+
+    linear_model = nnx.Linear(4, 2, rngs=nnx.Rngs(0))
+    params_state = linear_model.state().split(nnx.Param)[0]
+    opt_state = tx.init(params_state)
+
+    def _linear_ce_loss(
+        *args: JaxPyTree,
+        **kwargs: JaxPyTree,
+    ) -> JaxPyTree:
+        """Compute cross-entropy loss for a linear parameter state.
+
+        Args:
+            *args: Positional arguments `(p_state, x_batch, y_batch)`.
+            **kwargs: Unused keyword arguments.
+
+        Returns:
+            Scalar mean cross-entropy `Tensor`.
+        """
+        del kwargs
+        p_state, x_batch, y_batch = args[0], args[1], args[2]
+        assert isinstance(p_state, Mapping)
+        w_leaf = p_state["kernel"]
+        b_leaf = p_state["bias"]
+        w_val = w_leaf.value if isinstance(w_leaf, nnx.Variable) else w_leaf
+        b_val = b_leaf.value if isinstance(b_leaf, nnx.Variable) else b_leaf
+        assert isinstance(x_batch, (JaxArray, Tensor))
+        assert isinstance(y_batch, (JaxArray, Tensor))
+        assert isinstance(w_val, (JaxArray, Tensor))
+        assert isinstance(b_val, (JaxArray, Tensor))
+        w_arr = ensure_array(w_val)
+        b_arr = ensure_array(b_val)
+        x_arr = ensure_array(x_batch)
+        logits = zero_jax.numpy.matmul(x_arr, w_arr)
+        assert isinstance(logits, JaxArray)
+        logits_with_bias = asarray(logits) + asarray(b_arr)
+        return zero_optax._tree.reduce_mean(
+            zero_optax.softmax_cross_entropy(logits_with_bias, y_batch)
+        )
+
+    @zero_chex.assert_max_traces(n=2)
+    def _traced_loss(
+        *args: JaxPyTree,
+        **kwargs: JaxPyTree,
+    ) -> JaxPyTree:
+        """Trace-counted wrapper around `_linear_ce_loss`.
+
+        Args:
+            *args: Positional arguments `(p_state, x_batch, y_batch)`.
+            **kwargs: Unused keyword arguments.
+
+        Returns:
+            Scalar loss `Tensor`.
+        """
+        return _linear_ce_loss(*args, **kwargs)
+
+    jit_forward_loss = zero_jax.jit(_traced_loss)
+
+    batch0 = next(grain_iter)
+    assert isinstance(batch0, Mapping)
+    x_raw = batch0["x"]
+    y_raw = batch0["y"]
+    assert isinstance(x_raw, (JaxArray, Tensor))
+    assert isinstance(y_raw, (JaxArray, Tensor))
+    x_b0 = ensure_array(x_raw)
+    y_b0 = ensure_array(y_raw)
+
+    w_init_leaf = params_state["kernel"]
+    b_init_leaf = params_state["bias"]
+    assert isinstance(w_init_leaf, nnx.Variable)
+    assert isinstance(b_init_leaf, nnx.Variable)
+    w_init_val = w_init_leaf.value
+    b_init_val = b_init_leaf.value
+    assert isinstance(w_init_val, (JaxArray, Tensor))
+    assert isinstance(b_init_val, (JaxArray, Tensor))
+    params_jax_tree: dict[str, JaxPyTree] = {
+        "kernel": ensure_array(w_init_val),
+        "bias": ensure_array(b_init_val),
+    }
+
+    jit_l0 = jit_forward_loss(params_jax_tree, x_b0, y_b0)
+    loss_val, raw_grads = zero_jax.value_and_grad(_linear_ce_loss)(
+        params_jax_tree, x_b0, y_b0
+    )
+    assert isinstance(jit_l0, (JaxArray, Tensor))
+    assert isinstance(loss_val, (JaxArray, Tensor))
+    assert isinstance(raw_grads, Mapping)
+    gk = raw_grads["kernel"]
+    gb = raw_grads["bias"]
+    assert isinstance(gk, (JaxArray, Tensor))
+    assert isinstance(gb, (JaxArray, Tensor))
+    grads = nnx.State(
+        {
+            "kernel": nnx.Param(ensure_array(gk)),
+            "bias": nnx.Param(ensure_array(gb)),
+        }
+    )
+    zero_chex.assert_trees_all_finite(jit_l0)
+    zero_chex.assert_trees_all_finite(loss_val)
+    zero_chex.assert_trees_all_finite(grads)
+    updates, opt_state = tx.update(grads, opt_state, params_state)
+    updated_params = apply_updates(params_state, updates)
+    assert isinstance(updated_params, nnx.State)
+    params_state = updated_params
+    zero_chex.assert_trees_all_finite(params_state)
+    zero_chex.assert_trees_all_finite(opt_state)
+
+    # Checkpoint (params, opt_state, grain_iter state) via zero_orbax StandardCheckpointer & PyTreeCheckpointer
+    std_ckpt = StandardCheckpointer()
+    std_dir = tmp_path / "std_ckpt"
+    std_ckpt.save(std_dir, opt_state_to_state_dict(opt_state))
+    std_restored_raw = std_ckpt.restore(std_dir)
+    std_restored_opt = opt_state_from_state_dict(opt_state, std_restored_raw)
+    zero_chex.assert_trees_all_close(opt_state, std_restored_opt)
+
+    pytree_ckpt = PyTreeCheckpointer()
+    bundle_dir = tmp_path / "bundle_ckpt"
+    grain_state_dict = grain_iter.get_state()
+    next_idx_raw = grain_state_dict.get("next_index", 0)
+    grain_step = next_idx_raw if isinstance(next_idx_raw, int) else 0
+    bundle_payload: StateDictTree = {
+        "params": opt_state_to_state_dict(params_state),
+        "opt_state": opt_state_to_state_dict(opt_state),
+        "grain_step": grain_step,
+    }
+    pytree_ckpt.save(bundle_dir, bundle_payload)
+    restored_bundle = pytree_ckpt.restore(bundle_dir)
+    assert isinstance(restored_bundle, dict)
+    restored_params = opt_state_from_state_dict(params_state, restored_bundle["params"])
+    restored_opt = opt_state_from_state_dict(opt_state, restored_bundle["opt_state"])
+    zero_chex.assert_trees_all_close(params_state, restored_params)
+    zero_chex.assert_trees_all_close(opt_state, restored_opt)
+
+    # 2. Test optax.masked and optax.partition / multi_transform with zero_flax.nnx.OfType(nnx.LoRAParam)
+    lora_model = nnx.LoRALinear(4, 2, lora_rank=2, rngs=nnx.Rngs(0))
+    lora_state = lora_model.state()
+    lora_grads = tree_map(lambda x: ones_like(x) * 0.1, lora_state)
+
+    lora_filter = nnx.OfType(nnx.LoRAParam)
+    masked_lora_tx = zero_optax.masked(sgd(0.5), lora_filter)
+    m_lora_st = masked_lora_tx.init(lora_state)
+    u_lora, _ = masked_lora_tx.update(lora_grads, m_lora_st, lora_state)
+    assert isinstance(u_lora, nnx.State)
+
+    # Also test masked with callable returning Filter, and apply_mask_tree with Filter directly
+    masked_callable_filter = zero_optax.masked(sgd(0.5), lambda _p: lora_filter)
+    mc_st = masked_callable_filter.init(lora_state)
+    masked_callable_filter.update(lora_grads, mc_st, lora_state)
+    direct_filtered = apply_mask_tree(u_lora, lora_grads, lora_filter)
+    assert isinstance(direct_filtered, nnx.State)
+    assert _coerce_submask(lora_filter) is lora_filter
+    assert _coerce_submask(nnx.LoRAParam) is nnx.LoRAParam
+
+    # Test evaluate_filter_mask_tree on MappableDataclass, tuple, list, JaxArray, scalar, and Tensor
+    from zero_optax._tree import evaluate_filter_mask_tree
+
+    dc_mask = evaluate_filter_mask_tree(
+        lora_filter, _ChexParamNode(w=asarray([1.0]), b=asarray([2.0]))
+    )
+    assert isinstance(dc_mask, tuple)
+    tup_param: PyTree = (ensure_array([1.0]), [1.0, asarray(2.0)])
+    tup_mask = evaluate_filter_mask_tree(lora_filter, tup_param)
+    assert isinstance(tup_mask, tuple)
+
+    # Test partition / multi_transform with Filter directly and with {label: Filter} mapping
+    part_direct = zero_optax.multi_transform(
+        {True: sgd(0.5), False: zero_optax.set_to_zero()},
+        lora_filter,
+    )
+    pd_st = part_direct.init(lora_state)
+    u_pd, _ = part_direct.update(lora_grads, pd_st, lora_state)
+    assert isinstance(u_pd, nnx.State)
+
+    part_callable_filter = zero_optax.partition(
+        {True: sgd(0.5), False: zero_optax.set_to_zero()},
+        lambda _p: lora_filter,
+    )
+    pcf_st = part_callable_filter.init(lora_state)
+    part_callable_filter.update(lora_grads, pcf_st, lora_state)
+
+    part_map_filters = zero_optax.multi_transform(
+        {
+            "lora": adamw(1e-2),
+            "base": sgd(1e-3),
+            "other": zero_optax.set_to_zero(),
+        },
+        {
+            "lora": nnx.OfType(nnx.LoRAParam),
+            "base": nnx.OfType(nnx.Param),
+        },
+    )
+    pmf_st = part_map_filters.init(lora_state)
+    u_pmf, _ = part_map_filters.update(lora_grads, pmf_st, lora_state)
+    assert isinstance(u_pmf, nnx.State)
+
+    part_map_all_filters = zero_optax.multi_transform(
+        {
+            "lora": adamw(1e-2),
+            "base": sgd(1e-3),
+        },
+        {
+            "lora": nnx.OfType(nnx.LoRAParam),
+            "base": nnx.OfType(nnx.Param),
+        },
+    )
+    pmaf_st = part_map_all_filters.init(lora_state)
+    part_map_all_filters.update(lora_grads, pmaf_st, lora_state)
+
+    # Test _resolve_filter_label_map_on_params and _build_label_mask on MappableDataclass, tuple, and list
+    from zero_optax.combine import (
+        _build_label_mask,
+        _resolve_filter_label_map_on_params,
+        _resolve_labels_for_params,
+    )
+
+    mixed_labels_map: dict[Hashable, Filter | type[VariableBase] | str] = {
+        "lora": nnx.OfType(nnx.LoRAParam),
+        "extra": "base",
+    }
+    assert (
+        _resolve_labels_for_params(
+            mixed_labels_map,
+            lora_state,
+            ["lora", "base"],
+        )
+        is not None
+    )
+    assert _resolve_labels_for_params(
+        lambda _p: {"kernel": "base"},
+        lora_state,
+        ["base"],
+    ) == {"kernel": "base"}
+
+    dc_param = _ChexParamNode(w=asarray([1.0]), b=asarray([2.0]))
+    dc_labels = _resolve_filter_label_map_on_params(
+        {"lora": nnx.OfType(nnx.LoRAParam)}, "other", dc_param
+    )
+    assert _build_label_mask(dc_param, "other") is not None
+    assert isinstance(dc_labels, dict)
+    seq_labels = _resolve_filter_label_map_on_params(
+        {"lora": nnx.OfType(nnx.LoRAParam)},
+        None,
+        ([asarray(1.0)], asarray(2.0)),
+    )
+    assert isinstance(seq_labels, tuple)

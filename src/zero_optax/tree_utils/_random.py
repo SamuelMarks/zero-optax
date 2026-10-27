@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
+from typing import Union
+
+from zero_flax.nnx.rnglib import Rngs, RngStream
 
 from zero_optax._tree import (
     _coerce_pytree_child,
@@ -25,21 +28,27 @@ from zero_optax._types import (
 )
 from zero_optax.tree_utils._tree_math import _flatten_tensor_floats
 
+RngKeyLike = Union[ArrayLike, Rngs, RngStream, int]
 SamplerFn = Callable[[Tensor, tuple[int, ...], DTypeLike], ArrayLike]
 
 
-def _extract_seed_int(rng_key: ArrayLike | int) -> int:
-    """Extract an integer seed from a PRNGKey tensor, array-like, or integer.
+def _extract_seed_int(rng_key: RngKeyLike) -> int:
+    """Extract an integer seed from a `zero_jax.random.PRNGKey`, `zero_flax.nnx.Rngs`, or integer.
 
     Args:
-        rng_key: PRNG key array or integer seed.
+        rng_key: PRNG key array, `zero_flax.nnx.Rngs`, `RngStream`, or integer seed.
 
     Returns:
         Deterministic non-negative 32-bit integer seed.
     """
     if isinstance(rng_key, int):
         return rng_key & 0xFFFFFFFF
-    t = asarray(rng_key)
+    if isinstance(rng_key, Rngs):
+        t = asarray(rng_key("params"))
+    elif isinstance(rng_key, RngStream):
+        t = asarray(rng_key())
+    else:
+        t = asarray(rng_key)
     vals = _flatten_tensor_floats(t)
     acc = 0
     for idx, v in enumerate(vals):
@@ -147,13 +156,13 @@ def _unflatten_like(
 
 
 def tree_split_key_like(
-    rng_key: ArrayLike | int,
+    rng_key: RngKeyLike,
     target_tree: PyTree,
 ) -> PyTree:
     """Split a PRNG key to match the PyTree structure of `target_tree`.
 
     Args:
-        rng_key: Base PRNG key array or integer seed.
+        rng_key: Base PRNG key array, `zero_flax.nnx.Rngs`, `RngStream`, or integer seed.
         target_tree: Target PyTree whose leaf structure is matched.
 
     Returns:
@@ -167,7 +176,7 @@ def tree_split_key_like(
 
 
 def tree_random_like(
-    rng_key: ArrayLike | int,
+    rng_key: RngKeyLike,
     target_tree: PyTree,
     sampler: SamplerFn = _default_normal_sampler,
     dtype: DTypeLike = None,
@@ -175,7 +184,7 @@ def tree_random_like(
     """Create a PyTree of random tensors matching the structure and shapes of `target_tree`.
 
     Args:
-        rng_key: Base PRNG key array or integer seed.
+        rng_key: Base PRNG key array, `zero_flax.nnx.Rngs`, `RngStream`, or integer seed.
         target_tree: Target PyTree whose structure and leaf shapes are matched.
         sampler: Sampling callable `(key, shape, dtype) -> Tensor` (defaults to normal).
         dtype: Optional target dtype for sampled leaves (defaults to each leaf's dtype).
@@ -232,6 +241,7 @@ def tree_unwrap_random_key_data(input_tree: PyTree) -> PyTree:
 
 
 __all__ = [
+    "RngKeyLike",
     "SamplerFn",
     "tree_random_like",
     "tree_split_key_like",

@@ -14,7 +14,6 @@ from zero_optax._tree import (
     maximum,
     minimum,
     ones,
-    ones_like,
     power,
     reduce_max,
     reduce_min,
@@ -25,7 +24,25 @@ from zero_optax._tree import (
     where,
 )
 from zero_optax._tree import (
+    tree_add as _base_tree_add,
+)
+from zero_optax._tree import (
     tree_l2_norm as _base_tree_l2_norm,
+)
+from zero_optax._tree import (
+    tree_mul as _base_tree_mul,
+)
+from zero_optax._tree import (
+    tree_ones_like as _base_tree_ones_like,
+)
+from zero_optax._tree import (
+    tree_scale as _base_tree_scale,
+)
+from zero_optax._tree import (
+    tree_sub as _base_tree_sub,
+)
+from zero_optax._tree import (
+    tree_vdot as _base_tree_vdot,
 )
 from zero_optax._tree import (
     tree_zeros_like as _base_tree_zeros_like,
@@ -38,7 +55,6 @@ from zero_optax._types import (
     CustomMappingPyTreeProtocol,
     DType,
     DTypeLike,
-    MappableDataclassProtocol,
     NamedTupleProtocol,
     OptStateProtocol,
     PyTree,
@@ -99,25 +115,7 @@ def tree_add(
     Returns:
         PyTree containing the element-wise sum of all input PyTrees.
     """
-
-    def _add_pair(a: TensorLeaf, b: TensorLeaf) -> TensorLeaf:
-        """Add two leaves element-wise.
-
-        Args:
-            a: First leaf.
-            b: Second leaf.
-
-        Returns:
-            Sum leaf `a + b` (or None if `a` is None).
-        """
-        if a is None or b is None:
-            return None
-        return asarray(a) + asarray(b)
-
-    acc = tree_map(_add_pair, tree_x, tree_y)
-    for other in other_trees:
-        acc = tree_map(_add_pair, acc, other)
-    return acc
+    return _base_tree_add(tree_x, tree_y, *other_trees)
 
 
 def tree_sub(tree_x: PyTree, tree_y: PyTree) -> PyTree:
@@ -130,22 +128,7 @@ def tree_sub(tree_x: PyTree, tree_y: PyTree) -> PyTree:
     Returns:
         PyTree containing `tree_x - tree_y`.
     """
-
-    def _sub_pair(a: TensorLeaf, b: TensorLeaf) -> TensorLeaf:
-        """Subtract `b` from `a`.
-
-        Args:
-            a: Minuend leaf.
-            b: Subtrahend leaf.
-
-        Returns:
-            Difference leaf `a - b` (or None if `a` is None).
-        """
-        if a is None or b is None:
-            return None
-        return asarray(a) - asarray(b)
-
-    return tree_map(_sub_pair, tree_x, tree_y)
+    return _base_tree_sub(tree_x, tree_y)
 
 
 def tree_mul(tree_x: PyTree, tree_y: PyTree) -> PyTree:
@@ -158,22 +141,7 @@ def tree_mul(tree_x: PyTree, tree_y: PyTree) -> PyTree:
     Returns:
         PyTree containing the element-wise product `tree_x * tree_y`.
     """
-
-    def _mul_pair(a: TensorLeaf, b: TensorLeaf) -> TensorLeaf:
-        """Multiply `a` and `b`.
-
-        Args:
-            a: First leaf.
-            b: Second leaf.
-
-        Returns:
-            Product leaf `a * b` (or None if `a` is None).
-        """
-        if a is None or b is None:
-            return None
-        return asarray(a) * asarray(b)
-
-    return tree_map(_mul_pair, tree_x, tree_y)
+    return _base_tree_mul(tree_x, tree_y)
 
 
 def tree_div(tree_x: PyTree, tree_y: PyTree) -> PyTree:
@@ -214,20 +182,7 @@ def tree_scalar_mul(scalar: Scalar, tree: PyTree) -> PyTree:
     Returns:
         Scaled PyTree `scalar * tree`.
     """
-    s_t = asarray(scalar)
-
-    def _scale_leaf(x: TensorLeaf) -> TensorLeaf:
-        """Multiply leaf `x` by `scalar`.
-
-        Args:
-            x: Input leaf.
-
-        Returns:
-            Scaled leaf (or None if `x` is None).
-        """
-        return None if x is None else s_t * asarray(x)
-
-    return tree_map(_scale_leaf, tree)
+    return _base_tree_scale(scalar, tree)
 
 
 def tree_scale(scalar: Scalar, tree: PyTree) -> PyTree:
@@ -431,19 +386,7 @@ def tree_ones_like(
     Returns:
         All-ones PyTree.
     """
-
-    def _one_leaf(x: TensorLeaf) -> TensorLeaf:
-        """Create an all-ones tensor matching `x`.
-
-        Args:
-            x: Input leaf.
-
-        Returns:
-            Ones Tensor leaf (or None if `x` is None).
-        """
-        return None if x is None else ones_like(x, dtype=dtype)
-
-    return tree_map(_one_leaf, tree)
+    return _base_tree_ones_like(tree, dtype=dtype)
 
 
 def tree_full_like(
@@ -710,8 +653,7 @@ def tree_vdot(tree_x: PyTree, tree_y: PyTree) -> Tensor:
     Returns:
         Scalar Tensor holding the inner product.
     """
-    prod_tree = tree_mul(tree_x, tree_y)
-    return tree_sum(prod_tree)
+    return _base_tree_vdot(tree_x, tree_y)
 
 
 def tree_l1_norm(tree: PyTree) -> Tensor:
@@ -807,11 +749,6 @@ def _structure_signature(tree: PyTree) -> tuple[str, ...]:
         for f in tree._fields:
             dc_tokens.extend(_structure_signature(as_dict[f]))
         return tuple(dc_tokens)
-    if isinstance(tree, MappableDataclassProtocol):
-        mc_tokens: list[str] = [f"mc:{type(tree).__name__}"]
-        for val in tree.__chex_field_values__():
-            mc_tokens.extend(_structure_signature(_coerce_pytree_child(val)))
-        return tuple(mc_tokens)
     if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
         tokens: list[str] = ["map_start"]
         for k in sorted(tree.keys(), key=str):

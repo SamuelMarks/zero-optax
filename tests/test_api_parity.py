@@ -149,7 +149,7 @@ def test_api_parity_local_snapshot() -> None:
         assert "_make" in cls_members, f"{name} must define _make"
         verified_states.add(name)
     assert verified_states == expected_states
-    assert len(verified_states) == 50
+    assert len(verified_states) == 52
 
     if mismatches:
         pytest.fail("API Parity Mismatches found: " + "; ".join(mismatches))

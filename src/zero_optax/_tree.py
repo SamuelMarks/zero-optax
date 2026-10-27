@@ -1,4 +1,4 @@
-"""PyTree traversal and typed tensor math helpers built on ml-switcheroo-compiler."""
+"""PyTree traversal and typed tensor math helpers built on zero-jax and ml-switcheroo-compiler."""
 
 from __future__ import annotations
 
@@ -8,10 +8,27 @@ from typing import Union
 from ml_switcheroo_compiler import ops
 from ml_switcheroo_compiler.core.dtype import DType
 from ml_switcheroo_compiler.core.tensor import Tensor, as_tensor_obj
+from ml_switcheroo_compiler.ops.base import emit_ir_node
 from ml_switcheroo_compiler.ops.shape import indexing
 from ml_switcheroo_compiler.ops.shape import reshape as shape_reshape
+from ml_switcheroo_compiler.tracing.state import global_tracing_state as _tracer
+from ml_switcheroo_compiler.tracing.tracer import ProxyTensor
+from ml_switcheroo_compiler.transforms.autodiff_rules.autodiff_provider import (
+    get_vjp_from_data,
+)
+from ml_switcheroo_compiler.transforms.autodiff_rules.common import (
+    UnconnectedGradients,
+)
+from ml_switcheroo_compiler.transforms.autodiff_rules.vjp_registry import _VJP_REGISTRY
+from ml_switcheroo_ir import LogicalGraph, LogicalNode
 from typing_extensions import TypeGuard
+from zero_flax.nnx.filterlib import Filter, to_predicate
+from zero_flax.nnx.variables import Variable, VariableBase
+from zero_jax import lax
+from zero_jax import tree_util as jax_tree_util
 from zero_jax._types import ArrayLikeSpec as JaxArrayLikeSpec
+from zero_jax.numpy import ndarray as JaxArray
+from zero_jax.numpy._ndarray import _to_tensor as _jax_to_tensor
 from zero_orbax.types import PyTree as OrbaxPyTree
 
 from zero_optax._types import (
@@ -28,6 +45,7 @@ from zero_optax._types import (
     NamedTupleProtocol,
     Params,
     PyTree,
+    Scalar,
     ScalarOrSchedule,
     ShapeDtypeProtocol,
     TensorLeaf,
@@ -38,6 +56,660 @@ from zero_optax._types import (
 
 INF: float = float("inf")
 NEG_INF: float = float("-inf")
+
+
+def _extract_node_shape(
+    graph: LogicalGraph,
+    node_id: str,
+) -> tuple[int, ...]:
+    """Extract static tuple shape metadata from a node in `graph`.
+
+    Args:
+        graph: Active logical IR graph.
+        node_id: Identifier of the node to inspect.
+
+    Returns:
+        Tuple of integer dimensions.
+    """
+    raw_shape = graph.nodes[node_id].shape_metadata
+    return (
+        tuple(int(d) for d in raw_shape if isinstance(d, int))
+        if isinstance(raw_shape, tuple)
+        else ()
+    )
+
+
+def _expand_reduced_cotangent(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+    inp_shape: tuple[int, ...],
+) -> tuple[str, int]:
+    """Expand reduced axes on `cotangent` and compute the number of reduced elements.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward reduction `LogicalNode` (`Sum`, `Mean`, `Max`, `Min`).
+        cotangent: Incoming cotangent node ID.
+        inp_shape: Static shape of the forward reduction input tensor.
+
+    Returns:
+        Tuple `(expanded_cotangent_id, num_reduced_elements)`.
+    """
+    axis_attr = node.attributes.get("axis")
+    keepdims = bool(node.attributes.get("keepdims", False))
+    cur = cotangent
+    num_reduced = 1
+    ndim = len(inp_shape)
+    if axis_attr is None:
+        for dim in inp_shape:
+            num_reduced *= max(1, dim)
+    else:
+        ax_int = int(axis_attr) if isinstance(axis_attr, int) else 0
+        ax = ax_int if ax_int >= 0 else ndim + ax_int
+        num_reduced *= max(1, inp_shape[ax])
+        if not keepdims:
+            cur = emit_ir_node(
+                graph,
+                "ExpandDims",
+                [cur],
+                shape_metadata=inp_shape,
+                attributes={"axis": ax},
+            )
+    return cur, max(1, num_reduced)
+
+
+def _sum_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str]:
+    """Compute the VJP of `Sum` / `ReduceSum` with axis-aware dimension expansion.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Sum` or `ReduceSum` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Single-element tuple containing the broadcasted gradient node ID.
+    """
+    inp_id = node.inputs[0]
+    inp_shape = _extract_node_shape(graph, inp_id)
+    cur, _ = _expand_reduced_cotangent(graph, node, cotangent, inp_shape)
+    bcast = emit_ir_node(
+        graph,
+        "BroadcastLike",
+        [cur, inp_id],
+        shape_metadata=inp_shape,
+        attributes={"target_id": inp_id},
+    )
+    return (bcast,)
+
+
+def _mean_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str]:
+    """Compute the VJP of `Mean` / `ReduceMean` dividing by the reduced element count.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Mean` or `ReduceMean` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Single-element tuple containing the scaled broadcasted gradient node ID.
+    """
+    inp_id = node.inputs[0]
+    inp_shape = _extract_node_shape(graph, inp_id)
+    cur, count = _expand_reduced_cotangent(graph, node, cotangent, inp_shape)
+    bcast = emit_ir_node(
+        graph,
+        "BroadcastLike",
+        [cur, inp_id],
+        shape_metadata=inp_shape,
+        attributes={"target_id": inp_id},
+    )
+    denom = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": float(count)},
+    )
+    scaled = emit_ir_node(
+        graph,
+        "Divide",
+        [bcast, denom],
+        shape_metadata=inp_shape,
+        attributes={},
+    )
+    return (scaled,)
+
+
+def _extrema_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str]:
+    """Compute the VJP of `Max` / `ReduceMax` / `Min` / `ReduceMin` splitting ties evenly.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward extremum reduction node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Single-element tuple containing the extremum-routed gradient node ID.
+    """
+    inp_id = node.inputs[0]
+    inp_shape = _extract_node_shape(graph, inp_id)
+    cur_cot, _ = _expand_reduced_cotangent(graph, node, cotangent, inp_shape)
+    cur_out, _ = _expand_reduced_cotangent(graph, node, node.id, inp_shape)
+    bcast_cot = emit_ir_node(
+        graph,
+        "BroadcastLike",
+        [cur_cot, inp_id],
+        shape_metadata=inp_shape,
+        attributes={"target_id": inp_id},
+    )
+    bcast_out = emit_ir_node(
+        graph,
+        "BroadcastLike",
+        [cur_out, inp_id],
+        shape_metadata=inp_shape,
+        attributes={"target_id": inp_id},
+    )
+    eq_mask = emit_ir_node(
+        graph,
+        "Equal",
+        [inp_id, bcast_out],
+        shape_metadata=inp_shape,
+        attributes={},
+    )
+    zero_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 0.0},
+    )
+    routed = emit_ir_node(
+        graph,
+        "Where",
+        [eq_mask, bcast_cot, zero_c],
+        shape_metadata=inp_shape,
+        attributes={},
+    )
+    return (routed,)
+
+
+def _bcast_reduce_to_input(
+    graph: LogicalGraph,
+    adj_id: str,
+    inp_id: str,
+) -> str:
+    """Reduce broadcasted axes of `adj_id` to match the shape of `inp_id`.
+
+    Args:
+        graph: Active backward IR graph.
+        adj_id: Raw gradient node ID.
+        inp_id: Forward input node ID whose shape should be matched.
+
+    Returns:
+        Shape-aligned gradient node ID.
+    """
+    inp_shape = _extract_node_shape(graph, inp_id)
+    return emit_ir_node(
+        graph,
+        "BroadcastReduce",
+        [adj_id, inp_id],
+        shape_metadata=inp_shape,
+        attributes={"target_id": inp_id},
+    )
+
+
+def _where_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[UnconnectedGradients, str, str]:
+    """Compute the VJP of `Where(condition, x, y)` wrt `condition`, `x`, and `y`.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Where` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple `(ZERO, grad_x, grad_y)`.
+    """
+    cond_id, x_id, y_id = node.inputs[0], node.inputs[1], node.inputs[2]
+    out_shape = _extract_node_shape(graph, node.id)
+    zero_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 0.0},
+    )
+    gx_raw = emit_ir_node(
+        graph,
+        "Where",
+        [cond_id, cotangent, zero_c],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gy_raw = emit_ir_node(
+        graph,
+        "Where",
+        [cond_id, zero_c, cotangent],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    return (
+        UnconnectedGradients.ZERO,
+        _bcast_reduce_to_input(graph, gx_raw, x_id),
+        _bcast_reduce_to_input(graph, gy_raw, y_id),
+    )
+
+
+def _maximum_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str, str]:
+    """Compute the VJP of `Maximum(x, y)` with broadcast reduction on both inputs.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Maximum` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple `(grad_x, grad_y)`.
+    """
+    x_id, y_id = node.inputs[0], node.inputs[1]
+    out_shape = _extract_node_shape(graph, node.id)
+    cond = emit_ir_node(
+        graph,
+        "GreaterEqual",
+        [x_id, y_id],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    zero_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 0.0},
+    )
+    gx = emit_ir_node(
+        graph,
+        "Where",
+        [cond, cotangent, zero_c],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gy = emit_ir_node(
+        graph,
+        "Where",
+        [cond, zero_c, cotangent],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    return (
+        _bcast_reduce_to_input(graph, gx, x_id),
+        _bcast_reduce_to_input(graph, gy, y_id),
+    )
+
+
+def _minimum_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str, str]:
+    """Compute the VJP of `Minimum(x, y)` with broadcast reduction on both inputs.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Minimum` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple `(grad_x, grad_y)`.
+    """
+    x_id, y_id = node.inputs[0], node.inputs[1]
+    out_shape = _extract_node_shape(graph, node.id)
+    cond = emit_ir_node(
+        graph,
+        "LessEqual",
+        [x_id, y_id],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    zero_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 0.0},
+    )
+    gx = emit_ir_node(
+        graph,
+        "Where",
+        [cond, cotangent, zero_c],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gy = emit_ir_node(
+        graph,
+        "Where",
+        [cond, zero_c, cotangent],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    return (
+        _bcast_reduce_to_input(graph, gx, x_id),
+        _bcast_reduce_to_input(graph, gy, y_id),
+    )
+
+
+def _power_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str, str | UnconnectedGradients]:
+    """Compute the VJP of `Power(x, y)` / `Pow(x, y)` avoiding `log(0)` when `y` is constant.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Power` or `Pow` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple `(grad_x, grad_y)`.
+    """
+    x_id, y_id = node.inputs[0], node.inputs[1]
+    out_shape = _extract_node_shape(graph, node.id)
+    one_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 1.0},
+    )
+    y_minus_1 = emit_ir_node(
+        graph,
+        "Subtract",
+        [y_id, one_c],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    x_pow = emit_ir_node(
+        graph,
+        "Power",
+        [x_id, y_minus_1],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    y_x_pow = emit_ir_node(
+        graph,
+        "Multiply",
+        [y_id, x_pow],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gx_raw = emit_ir_node(
+        graph,
+        "Multiply",
+        [cotangent, y_x_pow],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gx = _bcast_reduce_to_input(graph, gx_raw, x_id)
+    y_node = graph.nodes.get(y_id)
+    if y_node is not None and y_node.op_type == "Constant":
+        return (gx, UnconnectedGradients.ZERO)
+    eps_c = emit_ir_node(
+        graph,
+        "Constant",
+        [],
+        shape_metadata=(),
+        attributes={"value": 1e-30},
+    )
+    safe_x = emit_ir_node(
+        graph,
+        "Maximum",
+        [x_id, eps_c],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    log_x = emit_ir_node(
+        graph,
+        "Log",
+        [safe_x],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    x_pow_y = emit_ir_node(
+        graph,
+        "Power",
+        [x_id, y_id],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    log_term = emit_ir_node(
+        graph,
+        "Multiply",
+        [log_x, x_pow_y],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    gy_raw = emit_ir_node(
+        graph,
+        "Multiply",
+        [cotangent, log_term],
+        shape_metadata=out_shape,
+        attributes={},
+    )
+    return (gx, _bcast_reduce_to_input(graph, gy_raw, y_id))
+
+
+def _make_bcast_binary_vjp(
+    op_name: str,
+) -> Callable[[LogicalGraph, LogicalNode, str], tuple[str, ...]]:
+    """Wrap a declarative binary VJP rule with `BroadcastReduce` on each input.
+
+    Args:
+        op_name: Canonical binary operation name (`Add`, `Subtract`, `Multiply`, `Divide`, etc.).
+
+    Returns:
+        VJP rule callable that reduces broadcasted dimensions to match each input shape.
+    """
+    base_vjp = get_vjp_from_data(op_name)
+
+    def _wrapped(
+        graph: LogicalGraph,
+        node: LogicalNode,
+        cotangent: str,
+    ) -> tuple[str, ...]:
+        """Apply `base_vjp` and reduce broadcasted dimensions to match `node.inputs`.
+
+        Args:
+            graph: Active backward IR graph.
+            node: Forward binary operation node.
+            cotangent: Incoming cotangent node ID.
+
+        Returns:
+            Tuple of shape-aligned input gradient node IDs.
+        """
+        assert base_vjp is not None
+        raw_grads = base_vjp(graph, node, cotangent)
+        return tuple(
+            _bcast_reduce_to_input(graph, str(adj_id), inp_id)
+            for adj_id, inp_id in zip(raw_grads, node.inputs)
+        )
+
+    return _wrapped
+
+
+def _reshape_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str | UnconnectedGradients, ...]:
+    """Compute the VJP of `Reshape` by reshaping `cotangent` back to the input's shape.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Reshape` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple containing the reshaped gradient node ID and `ZERO` for any extra shape inputs.
+    """
+    inp_id = node.inputs[0]
+    inp_shape = _extract_node_shape(graph, inp_id)
+    extra_zeros = tuple(UnconnectedGradients.ZERO for _ in node.inputs[1:])
+    reshaped = emit_ir_node(
+        graph,
+        "Reshape",
+        [cotangent],
+        shape_metadata=inp_shape,
+        attributes={"newshape": list(inp_shape)},
+    )
+    return (reshaped, *extra_zeros)
+
+
+def _expand_dims_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str]:
+    """Compute the VJP of `ExpandDims` by squeezing the inserted dimension.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `ExpandDims` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Single-element tuple containing the squeezed gradient node ID.
+    """
+    inp_id = node.inputs[0]
+    inp_shape = _extract_node_shape(graph, inp_id)
+    axis = node.attributes.get("axis", 0)
+    squeezed = emit_ir_node(
+        graph,
+        "Squeeze",
+        [cotangent],
+        shape_metadata=inp_shape,
+        attributes={"axis": axis},
+    )
+    return (squeezed,)
+
+
+def _zero_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[UnconnectedGradients, ...]:
+    """Return zero gradients for non-differentiable creation, comparison, and piecewise step ops.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Non-differentiable forward node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple of `UnconnectedGradients.ZERO` matching `len(node.inputs)`.
+    """
+    del graph, cotangent
+    return tuple(UnconnectedGradients.ZERO for _ in node.inputs)
+
+
+def _cast_vjp_rule(
+    graph: LogicalGraph,
+    node: LogicalNode,
+    cotangent: str,
+) -> tuple[str | UnconnectedGradients, ...]:
+    """Pass `cotangent` through `Cast` during reverse-mode differentiation.
+
+    Args:
+        graph: Active backward IR graph.
+        node: Forward `Cast` node.
+        cotangent: Incoming cotangent node ID.
+
+    Returns:
+        Tuple `(cotangent, *extra_zeros)`.
+    """
+    del graph
+    return (cotangent, *(UnconnectedGradients.ZERO for _ in node.inputs[1:]))
+
+
+def _register_autodiff_vjp_rules() -> None:
+    """Register complete VJP rules in `ml_switcheroo_compiler` for `zero_jax.grad` support."""
+    _VJP_REGISTRY["Sum"] = _sum_vjp_rule
+    _VJP_REGISTRY["ReduceSum"] = _sum_vjp_rule
+    _VJP_REGISTRY["Mean"] = _mean_vjp_rule
+    _VJP_REGISTRY["ReduceMean"] = _mean_vjp_rule
+    _VJP_REGISTRY["Max"] = _extrema_vjp_rule
+    _VJP_REGISTRY["ReduceMax"] = _extrema_vjp_rule
+    _VJP_REGISTRY["Min"] = _extrema_vjp_rule
+    _VJP_REGISTRY["ReduceMin"] = _extrema_vjp_rule
+    _VJP_REGISTRY["Where"] = _where_vjp_rule
+    _VJP_REGISTRY["Maximum"] = _maximum_vjp_rule
+    _VJP_REGISTRY["Minimum"] = _minimum_vjp_rule
+    _VJP_REGISTRY["Power"] = _power_vjp_rule
+    _VJP_REGISTRY["Pow"] = _power_vjp_rule
+    _VJP_REGISTRY["Reshape"] = _reshape_vjp_rule
+    _VJP_REGISTRY["ExpandDims"] = _expand_dims_vjp_rule
+    _VJP_REGISTRY["Cast"] = _cast_vjp_rule
+    for bin_op in (
+        "Add",
+        "Subtract",
+        "Sub",
+        "Multiply",
+        "Mul",
+        "Divide",
+        "TrueDivide",
+        "Div",
+    ):
+        _VJP_REGISTRY[bin_op] = _make_bcast_binary_vjp(bin_op)
+    for non_diff_op in (
+        "Zeros",
+        "ZerosLike",
+        "Ones",
+        "OnesLike",
+        "Full",
+        "FullLike",
+        "Arange",
+        "Eye",
+        "Equal",
+        "NotEqual",
+        "Greater",
+        "GreaterEqual",
+        "Less",
+        "LessEqual",
+        "LogicalAnd",
+        "LogicalOr",
+        "LogicalNot",
+        "IsNaN",
+        "IsInf",
+        "IsFinite",
+        "Floor",
+        "Ceil",
+        "Round",
+        "Sign",
+    ):
+        _VJP_REGISTRY[non_diff_op] = _zero_vjp_rule
+
+
+_register_autodiff_vjp_rules()
 
 
 def _resolve_dtype(dtype: DTypeLike) -> DType | None:
@@ -101,37 +773,50 @@ def _to_raw_array_input(
     Raises:
         TypeError: If `val` is not a supported `ArrayLike` value.
     """
-    if isinstance(val, (Tensor, int, float, bool)):
+    if isinstance(val, (int, float, bool)):
         return val
     if isinstance(val, Sequence) and not isinstance(val, (str, bytes)):
         return [_to_raw_array_input(item) for item in val]
-    if isinstance(
-        val,
-        (
-            ArrayLikeProtocol,
-            ToListArrayProtocol,
-            ShapeDtypeProtocol,
-            VariableLeafProtocol,
-        ),
-    ):
-        return asarray(val)
     raise TypeError(f"Unsupported ArrayLike input type: {type(val)!r}.")
 
 
 def asarray(val: ArrayLike, dtype: DTypeLike = None) -> Tensor:
-    """Convert an ArrayLike value into an ml-switcheroo-compiler Tensor.
+    """Convert an `ArrayLike` value into an `ml-switcheroo-compiler` `Tensor`.
+
+    Preserves `zero_jax.numpy.ndarray` (`JaxArray`) and traced `ProxyTensor` graphs
+    directly without `.tolist()` host copies so `zero_jax.grad` and `zero_jax.jit`
+    trace seamlessly through all `zero-optax` losses and transformations.
 
     Args:
         val: Input tensor, scalar, variable leaf, `zero_jax` array, or nested sequence.
         dtype: Optional target data type.
 
     Returns:
-        Converted Tensor instance.
+        Converted `Tensor` instance.
     """
     if isinstance(val, VariableLeafProtocol):
         val = val.value
-    if isinstance(val, Tensor) and dtype is None:
-        return val
+    target_dtype = _resolve_dtype(dtype)
+    if isinstance(val, JaxArray):
+        raw_tensor = _jax_to_tensor(val)
+        if target_dtype is None or raw_tensor.dtype == target_dtype:
+            return raw_tensor
+        return _jax_to_tensor(lax.convert_element_type(val, target_dtype.value))
+    if isinstance(val, Tensor):
+        lifted = _jax_to_tensor(val)
+        if target_dtype is None or lifted.dtype == target_dtype:
+            return lifted
+        return _jax_to_tensor(
+            lax.convert_element_type(JaxArray(lifted), target_dtype.value)
+        )
+    if (
+        isinstance(val, (list, tuple))
+        and len(val) > 0
+        and any(
+            isinstance(item, (JaxArray, Tensor, VariableLeafProtocol)) for item in val
+        )
+    ):
+        return stack([asarray(item, dtype=target_dtype) for item in val], axis=0)
     if isinstance(val, ArrayLikeProtocol):
         return as_tensor_obj(
             ops.asarray(
@@ -146,10 +831,10 @@ def asarray(val: ArrayLike, dtype: DTypeLike = None) -> Tensor:
         flat_tensor = as_tensor_obj(
             ops.asarray(flat_list, dtype=_extract_array_dtype(val, dtype))
         )
-        return as_tensor_obj(shape_reshape.Reshape()(flat_tensor, val.shape))
-    return as_tensor_obj(
-        ops.asarray(_to_raw_array_input(val), dtype=_resolve_dtype(dtype))
-    )
+        return as_tensor_obj(
+            shape_reshape.Reshape()(flat_tensor, newshape=tuple(val.shape))
+        )
+    return as_tensor_obj(ops.asarray(_to_raw_array_input(val), dtype=target_dtype))
 
 
 def zeros(shape: int | Sequence[int], dtype: DTypeLike = None) -> Tensor:
@@ -240,8 +925,8 @@ def arange(start: int, stop: int | None = None, step: int = 1) -> Tensor:
         1D Tensor of sequential values.
     """
     if stop is None:
-        return as_tensor_obj(ops.arange(0, start, step))
-    return as_tensor_obj(ops.arange(start, stop, step))
+        return as_tensor_obj(ops.arange(0, start, step, dtype=DType.int32))
+    return as_tensor_obj(ops.arange(start, stop, step, dtype=DType.int32))
 
 
 def where(condition: ArrayLike, x: ArrayLike, y: ArrayLike) -> Tensor:
@@ -284,7 +969,30 @@ def minimum(x: ArrayLike, y: ArrayLike) -> Tensor:
     return as_tensor_obj(ops.minimum(asarray(x), asarray(y)))
 
 
-def abs_tensor(x: ArrayLike) -> Tensor:
+def clip(
+    x: ArrayLike,
+    a_min: ArrayLike | None = None,
+    a_max: ArrayLike | None = None,
+) -> Tensor:
+    """Clip (limit) the values in an array between `a_min` and `a_max`.
+
+    Args:
+        x: Input tensor or scalar.
+        a_min: Optional minimum value bound.
+        a_max: Optional maximum value bound.
+
+    Returns:
+        Clipped Tensor.
+    """
+    out = asarray(x)
+    if a_min is not None:
+        out = maximum(out, a_min)
+    if a_max is not None:
+        out = minimum(out, a_max)
+    return out
+
+
+def abs_val(x: ArrayLike) -> Tensor:
     """Compute element-wise absolute value.
 
     Args:
@@ -293,7 +1001,12 @@ def abs_tensor(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise absolute value Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.abs(x))
     return as_tensor_obj(ops.abs(asarray(x)))
+
+
+abs_tensor = abs_val
 
 
 def exp(x: ArrayLike) -> Tensor:
@@ -305,6 +1018,8 @@ def exp(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise exponential Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.exp(x))
     return as_tensor_obj(ops.exp(asarray(x)))
 
 
@@ -317,6 +1032,8 @@ def log(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise natural logarithm Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.log(x))
     return as_tensor_obj(ops.log(asarray(x)))
 
 
@@ -329,6 +1046,8 @@ def log1p(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise log(1 + x) Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.log1p(x))
     return as_tensor_obj(ops.log1p(asarray(x)))
 
 
@@ -341,6 +1060,8 @@ def sqrt(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise square root Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.sqrt(x))
     return as_tensor_obj(ops.sqrt(asarray(x)))
 
 
@@ -353,6 +1074,8 @@ def sign(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise sign Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.sign(x))
     return as_tensor_obj(ops.sign(asarray(x)))
 
 
@@ -365,7 +1088,23 @@ def cos(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise cosine Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.cos(x))
     return as_tensor_obj(ops.cos(asarray(x)))
+
+
+def sin(x: ArrayLike) -> Tensor:
+    """Compute element-wise sine.
+
+    Args:
+        x: Input tensor or scalar in radians.
+
+    Returns:
+        Element-wise sine Tensor.
+    """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.sin(x))
+    return as_tensor_obj(ops.sin(asarray(x)))
 
 
 def floor(x: ArrayLike) -> Tensor:
@@ -377,6 +1116,8 @@ def floor(x: ArrayLike) -> Tensor:
     Returns:
         Element-wise floor Tensor.
     """
+    if isinstance(x, JaxArray):
+        return _jax_to_tensor(lax.floor(x))
     return as_tensor_obj(ops.floor(asarray(x)))
 
 
@@ -416,7 +1157,20 @@ def stack(tensors: Sequence[ArrayLike], axis: int = 0) -> Tensor:
     Returns:
         Stacked Tensor.
     """
-    return as_tensor_obj(ops.stack([asarray(t) for t in tensors], axis=axis))
+    t_list = [asarray(t) for t in tensors]
+    if any(isinstance(t.data, ProxyTensor) for t in t_list) or _tracer.is_tracing:
+        expanded = [expand_dims(t, axis) for t in t_list]
+        n_items = len(expanded)
+        out_ndim = expanded[0].ndim
+        norm_ax = axis if axis >= 0 else out_ndim + axis
+        idx_shape = [1] * out_ndim
+        idx_shape[norm_ax] = n_items
+        k_idx = reshape(arange(n_items), idx_shape)
+        acc = where(k_idx == 0, expanded[0], 0.0)
+        for idx_i in range(1, n_items):
+            acc = acc + where(k_idx == idx_i, expanded[idx_i], 0.0)
+        return acc
+    return as_tensor_obj(ops.stack(t_list, axis=axis))
 
 
 def sigmoid(x: ArrayLike) -> Tensor:
@@ -429,7 +1183,7 @@ def sigmoid(x: ArrayLike) -> Tensor:
         Sigmoid probability Tensor in [0, 1].
     """
     t = asarray(x)
-    neg_abs = -abs_tensor(t)
+    neg_abs = -abs_val(t)
     exp_neg = exp(neg_abs)
     denom = 1.0 + exp_neg
     pos_sig = 1.0 / denom
@@ -452,7 +1206,31 @@ def reduce_sum(
     Returns:
         Reduced sum Tensor.
     """
-    return as_tensor_obj(ops.sum(asarray(x), axis=axis, keepdims=keepdims))
+    t = asarray(x)
+    if isinstance(axis, tuple) and (
+        isinstance(t.data, ProxyTensor) or _tracer.is_tracing
+    ):
+        cur = t
+        norm_axes = sorted(
+            (a if a >= 0 else t.ndim + a for a in axis),
+            reverse=not keepdims,
+        )
+        for ax in norm_axes:
+            cur = as_tensor_obj(ops.sum(cur, axis=ax, keepdims=keepdims))
+        return cur
+    return as_tensor_obj(ops.sum(t, axis=axis, keepdims=keepdims))
+
+
+def sum_to_Float(x: ArrayLike) -> Tensor:
+    """Compute the scalar floating-point sum of all elements in `x`.
+
+    Args:
+        x: Input tensor or array-like.
+
+    Returns:
+        Scalar floating-point sum Tensor.
+    """
+    return reduce_sum(asarray(x, dtype="float32"))
 
 
 def reduce_mean(
@@ -471,6 +1249,9 @@ def reduce_mean(
         Reduced mean Tensor.
     """
     return as_tensor_obj(ops.mean(asarray(x), axis=axis, keepdims=keepdims))
+
+
+mean_axis = reduce_mean
 
 
 def reduce_max(
@@ -532,11 +1313,17 @@ def squeeze(x: ArrayLike, axis: int | tuple[int, ...] | None = None) -> Tensor:
     Returns:
         Squeezed Tensor.
     """
-    return as_tensor_obj(ops.squeeze(asarray(x), axis=axis))
+    t = asarray(x)
+    if (isinstance(t.data, ProxyTensor) or _tracer.is_tracing) and axis is not None:
+        return squeeze_axes(t, axis)
+    return as_tensor_obj(ops.squeeze(t, axis=axis))
 
 
 def take_along_axis(arr: ArrayLike, indices: ArrayLike, axis: int) -> Tensor:
     """Take values from the input tensor by matching 1D index and data slices.
+
+    Uses differentiable mask-gather operations when `axis` is the last dimension
+    during compiler tracing so `zero_jax.grad` differentiates through indexed losses.
 
     Args:
         arr: Source tensor.
@@ -546,7 +1333,23 @@ def take_along_axis(arr: ArrayLike, indices: ArrayLike, axis: int) -> Tensor:
     Returns:
         Indexed result wrapped as a Tensor.
     """
-    raw = indexing.take_along_axis(asarray(arr), asarray(indices), axis=axis)
+    arr_t = asarray(arr)
+    idx_t = asarray(indices)
+    ndim = arr_t.ndim
+    norm_ax = axis if axis >= 0 else ndim + axis
+    if (
+        (isinstance(arr_t.data, ProxyTensor) or _tracer.is_tracing)
+        and ndim >= 1
+        and norm_ax == ndim - 1
+        and 0 not in arr_t.shape
+    ):
+        dim_k = arr_t.shape[-1]
+        k_range = reshape(arange(dim_k), (1,) * ndim + (dim_k,))
+        idx_exp = expand_dims(idx_t, -1)
+        one_hot = idx_exp == k_range
+        arr_exp = expand_dims(arr_t, -2)
+        return reduce_sum(where(one_hot, arr_exp, 0.0), axis=-1)
+    raw = indexing.take_along_axis(arr_t, idx_t, axis=axis)
     return asarray(as_tensor_obj(raw))
 
 
@@ -560,7 +1363,7 @@ def reshape(x: ArrayLike, newshape: Sequence[int]) -> Tensor:
     Returns:
         Reshaped Tensor.
     """
-    return as_tensor_obj(shape_reshape.Reshape()(asarray(x), tuple(newshape)))
+    return as_tensor_obj(shape_reshape.Reshape()(asarray(x), newshape=tuple(newshape)))
 
 
 LeafFn1 = Callable[[TensorLeaf], TensorLeaf]
@@ -646,6 +1449,10 @@ def _replace_variable_leaf(
 ) -> VariableLeafProtocol:
     """Create a new `VariableLeafProtocol` container of the same type holding `new_val`.
 
+    Uses `leaf.replace(...)` on `zero_flax.nnx.Variable` instances to preserve variable
+    metadata (`tag`, `role`, `lora_rank`, etc.) and wraps `Tensor` values in
+    `zero_jax.numpy.ndarray` (`JaxArray`) when the original variable leaf held a `JaxArray`.
+
     Args:
         leaf: Original variable leaf container (`Param`, `BatchStat`, `LoRAParam`).
         new_val: Replacement tensor or leaf value.
@@ -653,11 +1460,20 @@ def _replace_variable_leaf(
     Returns:
         New variable container of the same class wrapping `new_val`.
     """
+    wrapped_val: PyTree = (
+        JaxArray(new_val)
+        if isinstance(new_val, Tensor) and isinstance(leaf.value, JaxArray)
+        else new_val
+    )
+    if isinstance(leaf, Variable) and isinstance(
+        wrapped_val, (JaxArray, Tensor, int, float, bool, type(None))
+    ):
+        return leaf.replace(wrapped_val)
     cls_type = type(leaf)
-    return cls_type(new_val)
+    return cls_type(wrapped_val)
 
 
-def _coerce_pytree_child(child: CustomMappingChild | MaskTree) -> PyTree:
+def _coerce_pytree_child(child: CustomMappingChild | MaskTree | ArrayLike) -> PyTree:
     """Narrow a child extracted from a `CustomMappingPyTreeProtocol` or `MappableDataclassProtocol` into a `PyTree`.
 
     Args:
@@ -670,6 +1486,7 @@ def _coerce_pytree_child(child: CustomMappingChild | MaskTree) -> PyTree:
         child,
         (
             Tensor,
+            JaxArray,
             float,
             int,
             bool,
@@ -733,7 +1550,7 @@ def _apply_leaf_fn(
     if (
         isinstance(first, VariableLeafProtocol)
         and res is not None
-        and not isinstance(res, VariableLeafProtocol)
+        and not isinstance(res, (VariableLeafProtocol, MaskedNode))
     ):
         return _replace_variable_leaf(first, res)
     return res
@@ -835,12 +1652,28 @@ def _extract_leaf(node: PyTree) -> TensorLeaf:
     return node
 
 
+def _is_optax_leaf(node: JaxArrayLikeSpec) -> bool:
+    """Check whether `node` should be treated as an atomic PyTree leaf in `zero_jax.tree_util`.
+
+    Args:
+        node: Candidate PyTree node.
+
+    Returns:
+        True if `node` is `None`, `MaskedNode`, or `VariableLeafProtocol`.
+    """
+    return node is None or isinstance(node, (MaskedNode, VariableLeafProtocol))
+
+
 def tree_map(
     fn: LeafFn,
     tree: PyTree,
     *rest: PyTree,
 ) -> PyTree:
     """Apply a function to every leaf across one or more PyTrees with matching structure.
+
+    Delegates structural flattening to `zero_jax.tree_util` while preserving
+    `MaskedNode`, `zero_flax.nnx.Variable`, `zero_flax.nnx.State`, and `FrozenDict`
+    container and leaf semantics.
 
     Args:
         fn: Callable taking 1 to 4 leaves (one per input tree) and returning a transformed leaf.
@@ -931,32 +1764,34 @@ def _tree_map_impl(
 
 
 def tree_leaves(tree: PyTree) -> list[TensorLeaf]:
-    """Collect all leaf values from a PyTree in depth-first order.
+    """Collect all leaf values from a PyTree in depth-first order using `zero_jax.tree_util`.
 
     Args:
         tree: Input PyTree structure.
 
     Returns:
-        Flat list of TensorLeaf values.
+        Flat list of `TensorLeaf` values (excluding `MaskedNode`).
     """
-    if isinstance(tree, MaskedNode):
-        return []
     if isinstance(tree, MappableDataclassProtocol):
         dc_leaves: list[TensorLeaf] = []
-        for v in tree.__chex_field_values__():
-            dc_leaves.extend(tree_leaves(_coerce_pytree_child(v)))
+        for fval in tree.__chex_field_values__():
+            dc_leaves.extend(tree_leaves(_coerce_pytree_child(fval)))
         return dc_leaves
     if isinstance(tree, (Mapping, CustomMappingPyTreeProtocol)):
-        leaves: list[TensorLeaf] = []
+        map_leaves: list[TensorLeaf] = []
         for k in tree:
-            leaves.extend(tree_leaves(_coerce_pytree_child(tree[k])))
-        return leaves
-    if isinstance(tree, (tuple, list)):
+            map_leaves.extend(tree_leaves(_coerce_pytree_child(tree[k])))
+        return map_leaves
+    if isinstance(tree, (tuple, list)) and not isinstance(tree, MaskedNode):
         seq_leaves: list[TensorLeaf] = []
         for item in tree:
             seq_leaves.extend(tree_leaves(item))
         return seq_leaves
-    return [tree]
+    if isinstance(tree, MaskedNode):
+        return []
+    jax_leaf: Tensor | None = None if tree is None else asarray(tree)
+    raw_leaves = jax_tree_util.tree_leaves(jax_leaf, is_leaf=_is_optax_leaf)
+    return [tree for _ in raw_leaves]
 
 
 def tree_zeros_like(tree: Params, dtype: DTypeLike = None) -> Updates:
@@ -984,6 +1819,120 @@ def tree_zeros_like(tree: Params, dtype: DTypeLike = None) -> Updates:
         return zeros_like(x, dtype=dtype)
 
     return tree_map(_zero_leaf, tree)
+
+
+def tree_ones_like(tree: Params, dtype: DTypeLike = None) -> Updates:
+    """Create an identical PyTree structure where every leaf is a ones Tensor.
+
+    Args:
+        tree: Input parameter PyTree.
+        dtype: Optional override data type for ones tensors.
+
+    Returns:
+        Ones-initialized PyTree matching `tree`.
+    """
+
+    def _one_leaf(x: TensorLeaf) -> TensorLeaf:
+        """Create a ones Tensor matching leaf `x`.
+
+        Args:
+            x: Leaf value from parameter PyTree.
+
+        Returns:
+            Ones Tensor matching `x`.
+        """
+        if x is None or isinstance(x, MaskedNode):
+            return x
+        return ones_like(x, dtype=dtype)
+
+    return tree_map(_one_leaf, tree)
+
+
+def tree_add(first: PyTree, *rest: PyTree) -> PyTree:
+    """Add two or more PyTrees element-wise across corresponding leaves.
+
+    Args:
+        first: First PyTree.
+        *rest: Additional PyTrees to add to `first`.
+
+    Returns:
+        Element-wise sum PyTree.
+    """
+    acc = first
+    for other in rest:
+        acc = tree_map(
+            lambda x, y: None if x is None or y is None else asarray(x) + asarray(y),
+            acc,
+            other,
+        )
+    return acc
+
+
+def tree_sub(first: PyTree, second: PyTree) -> PyTree:
+    """Subtract `second` from `first` element-wise across corresponding leaves.
+
+    Args:
+        first: Minuend PyTree.
+        second: Subtrahend PyTree.
+
+    Returns:
+        Element-wise difference PyTree `first - second`.
+    """
+    return tree_map(
+        lambda x, y: None if x is None or y is None else asarray(x) - asarray(y),
+        first,
+        second,
+    )
+
+
+def tree_mul(first: PyTree, second: PyTree) -> PyTree:
+    """Multiply two PyTrees element-wise across corresponding leaves.
+
+    Args:
+        first: First PyTree.
+        second: Second PyTree.
+
+    Returns:
+        Element-wise product PyTree `first * second`.
+    """
+    return tree_map(
+        lambda x, y: None if x is None or y is None else asarray(x) * asarray(y),
+        first,
+        second,
+    )
+
+
+def tree_scale(scalar: Scalar | ArrayLike, tree: PyTree) -> PyTree:
+    """Multiply every leaf in `tree` by `scalar`.
+
+    Args:
+        scalar: Scalar factor (Python float/int or scalar Tensor/JaxArray).
+        tree: Input PyTree to scale.
+
+    Returns:
+        Scaled PyTree.
+    """
+    s_t = asarray(scalar)
+    return tree_map(lambda x: None if x is None else s_t * asarray(x), tree)
+
+
+def tree_vdot(first: PyTree, second: PyTree) -> Tensor:
+    """Compute the inner (dot) product between two PyTrees of tensors.
+
+    Args:
+        first: First PyTree.
+        second: Second PyTree with identical structure.
+
+    Returns:
+        Scalar Tensor holding the sum of element-wise products across all leaves.
+    """
+    prod_tree = tree_mul(first, second)
+    total: Tensor = asarray(0.0)
+    for leaf in tree_leaves(prod_tree):
+        unwrapped = _unwrap_leaf(leaf)
+        if unwrapped is not None and not isinstance(unwrapped, MaskedNode):
+            total = total + reduce_sum(asarray(unwrapped))
+    return total
 
 
 def tree_l2_norm(tree: PyTree, squared: bool = False) -> Tensor:
@@ -1041,20 +1990,94 @@ def evaluate_schedule(
     return lr_or_schedule
 
 
-def resolve_mask(mask: MaskOrFn, params: Params) -> MaskTree | None:
-    """Resolve an optional mask or mask-producing callable against `params`.
+def _is_filter_spec(
+    obj: MaskOrFn | PyTree,
+) -> TypeGuard[Filter | type[VariableBase]]:
+    """Check whether `obj` is a `zero_flax.nnx.Filter` instance or `VariableBase` subclass.
 
     Args:
-        mask: Boolean mask PyTree, callable `(Params) -> MaskTree`, or None.
+        obj: Candidate mask specification.
+
+    Returns:
+        True if `obj` is a `Filter` or `VariableBase` subclass.
+    """
+    return isinstance(obj, Filter) or (
+        isinstance(obj, type) and issubclass(obj, VariableBase)
+    )
+
+
+def evaluate_filter_mask_tree(
+    filter_spec: Filter | type[VariableBase],
+    params: Params,
+    prefix: tuple[str, ...] = (),
+) -> MaskTree:
+    """Evaluate a `zero_flax.nnx.Filter` predicate across `params` to build a boolean `MaskTree`.
+
+    Args:
+        filter_spec: `Filter` instance or `VariableBase` subclass (e.g., `OfType(Param)`).
+        params: Target parameters PyTree.
+        prefix: Current tuple of string path segments from the root.
+
+    Returns:
+        Boolean `MaskTree` matching the container structure of `params`.
+    """
+    predicate = to_predicate(filter_spec)
+    if isinstance(params, MappableDataclassProtocol):
+        return tuple(
+            evaluate_filter_mask_tree(
+                predicate,
+                _coerce_pytree_child(val),
+                (*prefix, fname),
+            )
+            for fname, val in zip(
+                params.__chex_mappable_fields__(),
+                params.__chex_field_values__(),
+            )
+        )
+    if isinstance(params, (Mapping, CustomMappingPyTreeProtocol)):
+        return {
+            str(k): evaluate_filter_mask_tree(
+                predicate,
+                _coerce_pytree_child(params[k]),
+                (*prefix, str(k)),
+            )
+            for k in params
+        }
+    if isinstance(params, tuple):
+        return tuple(
+            evaluate_filter_mask_tree(predicate, item, (*prefix, str(idx)))
+            for idx, item in enumerate(params)
+        )
+    if isinstance(params, list):
+        return [
+            evaluate_filter_mask_tree(predicate, item, (*prefix, str(idx)))
+            for idx, item in enumerate(params)
+        ]
+    if isinstance(params, (VariableBase, JaxArray, int, float, bool, type(None))):
+        return bool(predicate(prefix, params))
+    return bool(predicate(prefix, None))
+
+
+def resolve_mask(mask: MaskOrFn, params: Params) -> MaskTree | None:
+    """Resolve an optional mask, `zero_flax.nnx.Filter`, or mask callable against `params`.
+
+    Args:
+        mask: Boolean mask PyTree, `zero_flax.nnx.Filter` / `Variable` type,
+            callable `(Params) -> MaskTree`, or None.
         params: Current model parameters PyTree.
 
     Returns:
-        Resolved MaskTree or None.
+        Resolved `MaskTree` or None.
     """
     if mask is None:
         return None
+    if isinstance(mask, (Filter, type)):
+        return evaluate_filter_mask_tree(mask, params)
     if callable(mask):
-        return mask(params)
+        resolved = mask(params)
+        if isinstance(resolved, (Filter, type)):
+            return evaluate_filter_mask_tree(resolved, params)
+        return resolved
     return mask
 
 
@@ -1067,12 +2090,16 @@ def _coerce_submask(val: PyTree | MaskTree) -> MaskTree:
     Returns:
         Validated `MaskTree`.
     """
-    if isinstance(val, (bool, VariableLeafProtocol, CustomMappingPyTreeProtocol)):
+    if isinstance(val, (bool, Filter, VariableLeafProtocol)):
+        return val
+    if isinstance(val, type) and issubclass(val, VariableBase):
         return val
     if isinstance(val, tuple):
         return tuple(_coerce_submask(item) for item in val)
     if isinstance(val, list):
         return [_coerce_submask(item) for item in val]
+    if isinstance(val, (Mapping, CustomMappingPyTreeProtocol)):
+        return {str(k): _coerce_submask(_coerce_pytree_child(val[k])) for k in val}
     return bool(val)
 
 
@@ -1086,11 +2113,14 @@ def apply_mask_tree(
     Args:
         masked_tree: PyTree of updates with transformation applied.
         unmasked_tree: PyTree of fallback updates when masked out.
-        mask_tree: Boolean or nested structure of booleans matching the PyTree.
+        mask_tree: Boolean, `Filter`, or nested structure of booleans matching the PyTree.
 
     Returns:
         Combined PyTree respecting the mask.
     """
+    if _is_filter_spec(mask_tree):
+        resolved_filter = evaluate_filter_mask_tree(mask_tree, unmasked_tree)
+        return apply_mask_tree(masked_tree, unmasked_tree, resolved_filter)
     if isinstance(mask_tree, VariableLeafProtocol):
         return masked_tree if bool(mask_tree.value) else unmasked_tree
     if isinstance(mask_tree, bool):
@@ -1180,9 +2210,12 @@ def logsumexp(
         Numerically stable log-sum-exp Tensor.
     """
     t = asarray(x)
+    if isinstance(t.data, ProxyTensor) or _tracer.is_tracing:
+        sum_exp_traced = reduce_sum(exp(t), axis=axis, keepdims=keepdims)
+        return log(maximum(sum_exp_traced, 1e-30))
     c = reduce_max(t, axis=axis, keepdims=True)
-    c_safe = where(abs_tensor(c) == INF, 0.0, c)
-    shifted = where(abs_tensor(t) == INF, NEG_INF, t - c_safe)
+    c_safe = where(abs_val(c) == INF, 0.0, c)
+    shifted = where(abs_val(t) == INF, NEG_INF, t - c_safe)
     sum_exp = reduce_sum(exp(shifted), axis=axis, keepdims=keepdims)
     c_out = c_safe if keepdims else squeeze_axes(c_safe, axis)
     return c_out + log(where(sum_exp == 0.0, 1.0, sum_exp))
@@ -1204,19 +2237,24 @@ def log_softmax(
         Log-probabilities Tensor matching the shape of `logits`.
     """
     l_arr = asarray(logits)
+    if (
+        isinstance(l_arr.data, ProxyTensor) or _tracer.is_tracing
+    ) and where_mask is None:
+        sum_exp_traced = reduce_sum(exp(l_arr), axis=axis, keepdims=True)
+        return l_arr - log(maximum(sum_exp_traced, 1e-30))
     if where_mask is not None:
         w_arr = asarray(where_mask)
         l_arr = where(w_arr, l_arr, NEG_INF)
     c = reduce_max(l_arr, axis=axis, keepdims=True)
-    c_safe = where(abs_tensor(c) == INF, 0.0, c)
-    l_minus_c = where(abs_tensor(l_arr) == INF, NEG_INF, l_arr - c_safe)
+    c_safe = where(abs_val(c) == INF, 0.0, c)
+    l_minus_c = where(abs_val(l_arr) == INF, NEG_INF, l_arr - c_safe)
     exp_l_c = exp(l_minus_c)
     if where_mask is not None:
         exp_l_c = where(asarray(where_mask), exp_l_c, 0.0)
     sumexp = reduce_sum(exp_l_c, axis=axis, keepdims=True)
     logsumexp_val = log(where(sumexp == 0.0, 1.0, sumexp))
     out = where(
-        abs_tensor(l_arr) == INF,
+        abs_val(l_arr) == INF,
         NEG_INF,
         l_minus_c - logsumexp_val,
     )
@@ -1269,11 +2307,14 @@ __all__ = [
     "INF",
     "NEG_INF",
     "abs_tensor",
+    "abs_val",
     "apply_mask_tree",
     "arange",
     "asarray",
+    "clip",
     "concatenate",
     "cos",
+    "evaluate_filter_mask_tree",
     "evaluate_schedule",
     "exp",
     "expand_dims",
@@ -1285,6 +2326,7 @@ __all__ = [
     "log_softmax",
     "logsumexp",
     "maximum",
+    "mean_axis",
     "minimum",
     "ones",
     "ones_like",
@@ -1298,15 +2340,23 @@ __all__ = [
     "safe_norm",
     "sigmoid",
     "sign",
+    "sin",
     "softmax",
     "sqrt",
     "squeeze",
     "squeeze_axes",
     "stack",
+    "sum_to_Float",
     "take_along_axis",
+    "tree_add",
     "tree_l2_norm",
     "tree_leaves",
     "tree_map",
+    "tree_mul",
+    "tree_ones_like",
+    "tree_scale",
+    "tree_sub",
+    "tree_vdot",
     "tree_zeros_like",
     "where",
     "zeros",

@@ -172,6 +172,7 @@ def softmax_cross_entropy_with_integer_labels(
     t_arr = asarray(labels)
     if 0 in l_arr.shape:
         return zeros(t_arr.shape)
+    zero_chex.assert_type([t_arr], int)
 
     log_probs = log_softmax(l_arr, axis=axis, where_mask=where)
     picked = take_along_axis(log_probs, expand_dims(t_arr, axis), axis=axis)

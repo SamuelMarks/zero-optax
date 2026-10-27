@@ -2,25 +2,7 @@
 
 from __future__ import annotations
 
-from zero_optax import (
-    assignment,
-    losses,
-    optimizers,
-    perturbations,
-    projections,
-    schedules,
-    second_order,
-    tree_utils,
-)
-from zero_optax._linesearch import (
-    BacktrackingLinesearchInfo,
-    ScaleByBacktrackingLinesearchState,
-    ScaleByZoomLinesearchState,
-    ZoomLinesearchInfo,
-    scale_by_backtracking_linesearch,
-    scale_by_zoom_linesearch,
-    value_and_grad_from_state,
-)
+from zero_optax._types import MaskedNode
 from zero_optax.base import (
     EmptyState,
     GradientTransformation,
@@ -40,8 +22,54 @@ from zero_optax.base import (
     identity,
     opt_state_from_state_dict,
     opt_state_to_state_dict,
+    register_all_opt_states,
     set_to_zero,
     stateless,
+)
+from zero_optax.schedules import (
+    InjectHyperparamsState,
+    InjectStatefulHyperparamsState,
+    constant_schedule,
+    cosine_decay_schedule,
+    cosine_onecycle_schedule,
+    exponential_decay,
+    grain_warmup_cosine_decay_schedule,
+    inject_hyperparams,
+    inject_stateful_hyperparams,
+    join_schedules,
+    linear_onecycle_schedule,
+    linear_schedule,
+    piecewise_constant_schedule,
+    piecewise_interpolate_schedule,
+    polynomial_schedule,
+    sgdr_schedule,
+    steps_per_epoch_from_grain,
+    warmup_constant_schedule,
+    warmup_cosine_decay_schedule,
+    warmup_exponential_decay_schedule,
+)
+
+# isort: split
+from zero_optax import (
+    alias,
+    assignment,
+    losses,
+    optimizers,
+    perturbations,
+    projections,
+    schedules,
+    second_order,
+    transforms,
+    tree_utils,
+)
+from zero_optax._linesearch import (
+    BacktrackingLinesearchInfo,
+    ScaleByBacktrackingLinesearchState,
+    ScaleByZoomLinesearchState,
+    ZoomLinesearchInfo,
+    scale_by_backtracking_linesearch,
+    scale_by_zoom_linesearch,
+    value_and_grad_from_state,
 )
 from zero_optax.clipping import (
     AdaptiveGradClipState,
@@ -87,6 +115,7 @@ from zero_optax.losses import (
     safe_softmax_cross_entropy,
     sigmoid_binary_cross_entropy,
     sigmoid_focal_loss,
+    smooth_l1_loss,
     smooth_labels,
     softmax_cross_entropy,
     softmax_cross_entropy_with_integer_labels,
@@ -148,32 +177,14 @@ from zero_optax.optimizers import (
     sm3,
     yogi,
 )
-from zero_optax.schedules import (
-    InjectHyperparamsState,
-    InjectStatefulHyperparamsState,
-    constant_schedule,
-    cosine_decay_schedule,
-    cosine_onecycle_schedule,
-    exponential_decay,
-    inject_hyperparams,
-    inject_stateful_hyperparams,
-    join_schedules,
-    linear_onecycle_schedule,
-    linear_schedule,
-    piecewise_constant_schedule,
-    piecewise_interpolate_schedule,
-    polynomial_schedule,
-    sgdr_schedule,
-    warmup_constant_schedule,
-    warmup_cosine_decay_schedule,
-    warmup_exponential_decay_schedule,
-)
 from zero_optax.transform import (
     AddDecayedWeightsState,
     AddNoiseState,
     EmaState,
     KeepParamsNonnegativeState,
     ScaleByAdamState,
+    ScaleByAdanState,
+    ScaleByAddNoiseState,
     ScaleByAmsgradState,
     ScaleByBeliefState,
     ScaleByLionState,
@@ -218,7 +229,6 @@ from zero_optax.update import (
 from zero_optax.wrappers import (
     LookaheadParams,
     LookaheadState,
-    MaskedNode,
     MaskedState,
     MultiSteps,
     MultiStepsState,
@@ -230,6 +240,8 @@ from zero_optax.wrappers import (
     skip_large_deltas,
     skip_not_finite,
 )
+
+register_all_opt_states()
 
 __all__ = [
     "AdaBeliefState",
@@ -270,6 +282,8 @@ __all__ = [
     "ScalarOrSchedule",
     "ScaleByAdamState",
     "ScaleByAdamaxState",
+    "ScaleByAdanState",
+    "ScaleByAddNoiseState",
     "ScaleByAmsgradState",
     "ScaleByBacktrackingLinesearchState",
     "ScaleByBeliefState",
@@ -310,6 +324,7 @@ __all__ = [
     "adaptive_grad_clip",
     "add_decayed_weights",
     "add_noise",
+    "alias",
     "amsgrad",
     "apply_updates",
     "assignment",
@@ -334,6 +349,7 @@ __all__ = [
     "freeze",
     "fromage",
     "global_norm",
+    "grain_warmup_cosine_decay_schedule",
     "hinge_loss",
     "huber_loss",
     "identity",
@@ -422,13 +438,16 @@ __all__ = [
     "skip_large_deltas",
     "skip_not_finite",
     "sm3",
+    "smooth_l1_loss",
     "smooth_labels",
     "softmax_cross_entropy",
     "softmax_cross_entropy_with_integer_labels",
     "sparsemax_loss",
     "squared_error",
     "stateless",
+    "steps_per_epoch_from_grain",
     "trace",
+    "transforms",
     "tree_map_params",
     "tree_utils",
     "triplet_margin_loss",

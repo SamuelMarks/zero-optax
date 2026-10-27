@@ -90,6 +90,38 @@ def huber_loss(
     return where_select(diff < d, 0.5 * diff * diff, d * (diff - 0.5 * d))
 
 
+def smooth_l1_loss(
+    predictions: ArrayLike,
+    targets: ArrayLike | None = None,
+    *,
+    alpha: float | ArrayLike = 1.0,
+) -> Tensor:
+    """Calculate the smooth L1 loss for a set of predictions.
+
+    Evaluates `0.5 * diff^2 / alpha` for `|diff| < alpha` and `|diff| - 0.5 * alpha`
+    for `|diff| >= alpha`.
+
+    Args:
+        predictions: Predicted floating-point values tensor of arbitrary shape.
+        targets: Ground-truth target values matching `predictions`. If None,
+            targets are assumed to be zeros matching `predictions`.
+        alpha: Positive threshold parameter controlling the quadratic-to-linear transition.
+
+    Returns:
+        Element-wise smooth L1 loss Tensor.
+    """
+    p = asarray(predictions)
+    zero_chex.assert_type([p], float)
+    if targets is None:
+        t = zeros_like(p)
+    else:
+        t = asarray(targets)
+        zero_chex.assert_equal_shape([p, t])
+    a = asarray(alpha)
+    diff = abs_tensor(p - t)
+    return where_select(diff < a, 0.5 * diff * diff / a, diff - 0.5 * a)
+
+
 def log_cosh(
     predictions: ArrayLike,
     targets: ArrayLike | None = None,
@@ -187,5 +219,6 @@ __all__ = [
     "huber_loss",
     "l2_loss",
     "log_cosh",
+    "smooth_l1_loss",
     "squared_error",
 ]
